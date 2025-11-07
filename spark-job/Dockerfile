@@ -1,4 +1,4 @@
-FROM openjdk:8-jdk
+FROM eclipse-temurin:8-jdk
 
 # Spark 3.4.2 (Scala 2.12)
 ARG SPARK_VERSION=3.4.2
