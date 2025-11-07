@@ -44,7 +44,7 @@ with DAG(
             "PG_USER": "airflow",
             "PG_PASSWORD": "airflow",
             # опционально: если дадишь ссылку на gist с generateSmallFiles
-            "GIST_URL": "",  # например: "https://gist.githubusercontent.com/xxx/raw/generateSmallFiles.scala"
+            "GIST_URL": "https://gist.github.com/oerasov/1905065dc6c0133267ec2a8167318399",  # например: "https://gist.githubusercontent.com/xxx/raw/generateSmallFiles.scala"
         },
         tty=True,
         command=["/opt/job/run.sh"],
