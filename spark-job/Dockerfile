@@ -1,22 +1,25 @@
 FROM eclipse-temurin:8-jdk
+# Если предпочтёшь Java 11 (Spark 3.4.x совместим): FROM eclipse-temurin:11-jdk
 
-# Spark 3.4.2 (Scala 2.12)
 ARG SPARK_VERSION=3.4.2
 ARG HADOOP_VERSION=3
-ARG SCALA_VERSION=2.12.15
 ENV SPARK_HOME=/opt/spark
 ENV PATH="$SPARK_HOME/bin:$PATH"
 
-# Установим curl, scala, sbt
+# Базовые утилиты
 RUN apt-get update && apt-get install -y curl gnupg ca-certificates bash && rm -rf /var/lib/apt/lists/*
-RUN curl -fsSL https://downloads.lightbend.com/scala/2.12.15/scala-2.12.15.deb -o /tmp/scala.deb && dpkg -i /tmp/scala.deb && rm /tmp/scala.deb
-RUN curl -fsSL https://repo.scala-sbt.org/scalasbt/debian/sbt-1.5.5.deb -o /tmp/sbt.deb && dpkg -i /tmp/sbt.deb || true && apt-get -f install -y && rm /tmp/sbt.deb
+
+# Установка sbt (через deb + auto deps)
+RUN curl -fsSL https://repo.scala-sbt.org/scalasbt/debian/sbt-1.5.5.deb -o /tmp/sbt.deb \
+ && dpkg -i /tmp/sbt.deb || true \
+ && apt-get -f install -y \
+ && rm /tmp/sbt.deb
 
 # Spark дистрибутив
 RUN curl -fsSL https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz \
     | tar -xz -C /opt && mv /opt/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION} ${SPARK_HOME}
 
-# Постгрес драйвер для JDBC
+# Драйвер Postgres
 ARG PG_JDBC_VER=42.7.4
 RUN curl -fsSL -o /opt/postgresql-jdbc.jar https://jdbc.postgresql.org/download/postgresql-${PG_JDBC_VER}.jar
 
@@ -25,7 +28,7 @@ COPY build.sbt ./build.sbt
 COPY project ./project
 COPY src ./src
 
-# Соберём fat-jar
+# Сборка fat-jar
 RUN sbt clean assembly
 
 # Скрипт запуска
@@ -42,7 +45,6 @@ PG_DB=${PG_DB:-airflow}\n\
 PG_USER=${PG_USER:-airflow}\n\
 PG_PASSWORD=${PG_PASSWORD:-airflow}\n\
 mkdir -p \"$DATA_DIR\"\n\
-# Запуск локального Spark job\n\
 $SPARK_HOME/bin/spark-submit \\\n\
   --class com.example.SparkCompactJob \\\n\
   --master local[*] \\\n\
