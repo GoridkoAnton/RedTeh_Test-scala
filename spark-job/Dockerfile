@@ -25,7 +25,8 @@ COPY src ./src
 
 RUN sbt clean assembly
 
-RUN bash -c 'cat > /opt/job/run.sh' <<'EOF'
+# создаём скрипт запуска без .sh, чтобы Airflow не пытался шаблонизировать
+RUN bash -c 'cat > /opt/job/run' <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -53,9 +54,8 @@ mkdir -p "$DATA_DIR"
   --gist-url "$GIST_URL" \
   --pg-host "$PG_HOST" --pg-port "$PG_PORT" --pg-db "$PG_DB" \
   --pg-user "$PG_USER" --pg-password "$PG_PASSWORD"
-
 EOF
 
-RUN chmod +x /opt/job/run.sh
+RUN chmod +x /opt/job/run
 
 ENTRYPOINT ["/bin/bash"]

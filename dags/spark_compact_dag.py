@@ -24,7 +24,9 @@ with DAG(
         auto_remove=True,
         docker_url="unix://var/run/docker.sock",
         network_mode="bridge",
+
         mounts=[Mount(source="shared_data", target="/data", type="volume")],
+
         environment={
             "DATA_DIR": "/data/parquet",
             "TARGET_FILE_MB": "64",
@@ -36,8 +38,9 @@ with DAG(
             "PG_USER": "airflow",
             "PG_PASSWORD": "airflow",
         },
+
         tty=True,
-        command="/opt/job/run.sh",   # строка, не список!
+        command="/opt/job/run",  # теперь без .sh
         mount_tmp_dir=False,
     )
 
