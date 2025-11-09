@@ -1,3 +1,5 @@
+version: "3.9"
+
 services:
   postgres:
     image: postgres:15
@@ -23,23 +25,14 @@ services:
     environment:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY}
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY}
     user: "0:0"
     volumes:
       - ./dags:/opt/airflow/dags
     command: >
-      bash -c "
-      airflow db init &&
-      airflow users create
-        --username admin
-        --password admin
-        --firstname Admin
-        --lastname User
-        --role Admin
-        --email admin@test.com
-      "
-  
+      bash -c "airflow db migrate && airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com"
+
   airflow-webserver:
     image: apache/airflow:2.7.3
     depends_on:
@@ -58,7 +51,7 @@ services:
     volumes:
       - ./dags:/opt/airflow/dags
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./data:/data
+      - shared_data:/data
     command: webserver
 
   airflow-scheduler:
@@ -76,10 +69,9 @@ services:
     volumes:
       - ./dags:/opt/airflow/dags
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./data:/data
+      - shared_data:/data
     command: scheduler
 
-  # этот сервис не запускаем по расписанию — он нужен лишь для сборки образа
   spark-job-build:
     build:
       context: ./spark-job
@@ -87,3 +79,4 @@ services:
 
 volumes:
   pgdata:
+  shared_data:
