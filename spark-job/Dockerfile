@@ -32,32 +32,37 @@ COPY src ./src
 RUN sbt clean assembly
 
 # Скрипт запуска
-RUN bash -c 'cat > /opt/job/run.sh << "EOF"\n\
-#!/usr/bin/env bash\n\
-set -euo pipefail\n\
-DATA_DIR=${DATA_DIR:-/data/parquet}\n\
-TARGET_FILE_MB=${TARGET_FILE_MB:-64}\n\
-GENERATE_TOTAL_MB=${GENERATE_TOTAL_MB:-300}\n\
-GIST_URL=${GIST_URL:-}\n\
-PG_HOST=${PG_HOST:-postgres}\n\
-PG_PORT=${PG_PORT:-5432}\n\
-PG_DB=${PG_DB:-airflow}\n\
-PG_USER=${PG_USER:-airflow}\n\
-PG_PASSWORD=${PG_PASSWORD:-airflow}\n\
-mkdir -p \"$DATA_DIR\"\n\
-$SPARK_HOME/bin/spark-submit \\\n\
-  --class com.example.SparkCompactJob \\\n\
-  --master local[*] \\\n\
-  --driver-class-path /opt/postgresql-jdbc.jar \\\n\
-  --jars /opt/postgresql-jdbc.jar \\\n\
-  /opt/job/target/scala-2.12/spark-compact-job-assembly.jar \\\n\
-  --data-dir \"$DATA_DIR\" \\\n\
-  --target-file-mb \"$TARGET_FILE_MB\" \\\n\
-  --generate-total-mb \"$GENERATE_TOTAL_MB\" \\\n\
-  --gist-url \"$GIST_URL\" \\\n\
-  --pg-host \"$PG_HOST\" --pg-port \"$PG_PORT\" --pg-db \"$PG_DB\" \\\n\
-  --pg-user \"$PG_USER\" --pg-password \"$PG_PASSWORD\"\n\
-EOF\n\
-chmod +x /opt/job/run.sh'
+RUN bash -c 'cat > /opt/job/run.sh' <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+DATA_DIR=${DATA_DIR:-/data/parquet}
+TARGET_FILE_MB=${TARGET_FILE_MB:-64}
+GENERATE_TOTAL_MB=${GENERATE_TOTAL_MB:-300}
+GIST_URL=${GIST_URL:-}
+PG_HOST=${PG_HOST:-postgres}
+PG_PORT=${PG_PORT:-5432}
+PG_DB=${PG_DB:-airflow}
+PG_USER=${PG_USER:-airflow}
+PG_PASSWORD=${PG_PASSWORD:-airflow}
+
+mkdir -p "$DATA_DIR"
+
+"$SPARK_HOME/bin/spark-submit" \
+  --class com.example.SparkCompactJob \
+  --master local[*] \
+  --driver-class-path /opt/postgresql-jdbc.jar \
+  --jars /opt/postgresql-jdbc.jar \
+  /opt/job/target/scala-2.12/spark-compact-job-assembly.jar \
+  --data-dir "$DATA_DIR" \
+  --target-file-mb "$TARGET_FILE_MB" \
+  --generate-total-mb "$GENERATE_TOTAL_MB" \
+  --gist-url "$GIST_URL" \
+  --pg-host "$PG_HOST" --pg-port "$PG_PORT" --pg-db "$PG_DB" \
+  --pg-user "$PG_USER" --pg-password "$PG_PASSWORD"
+
+EOF
+
+RUN chmod +x /opt/job/run.sh
 
 ENTRYPOINT ["/bin/bash"]
