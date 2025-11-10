@@ -1,6 +1,6 @@
 # Используем официальный образ Spark 3.3.0 со Scala 2.12 и Java 8
 # Это избавляет нас от ручной сборки sbt и установки Spark
-FROM bitnami/spark:3.3.0-scala-2.12-java-8
+FROM bitnami/spark:3.3.0
 
 # Устанавливаем драйвер PostgreSQL
 USER root
