@@ -19,58 +19,45 @@ services:
 
   airflow-init:
     image: apache/airflow:2.7.3
-    depends_on:
-      postgres:
-        condition: service_healthy
     environment:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
       AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY}
-    user: "0:0"
+      PIP_ADDITIONAL_REQUIREMENTS: "apache-airflow-providers-docker==3.10.0 docker==6.1.3"
+    # обязательно чтобы DockerOperator видел демон:
     volumes:
       - ./dags:/opt/airflow/dags
-    command: >
-      bash -c "airflow db migrate && airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com"
+      - /var/run/docker.sock:/var/run/docker.sock
+    # остальное без изменений...
 
   airflow-webserver:
     image: apache/airflow:2.7.3
-    depends_on:
-      postgres:
-        condition: service_healthy
-      airflow-init:
-        condition: service_completed_successfully
     environment:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
       AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY}
       DOCKER_HOST: unix:///var/run/docker.sock
-    ports:
-      - "8080:8080"
+      PIP_ADDITIONAL_REQUIREMENTS: "apache-airflow-providers-docker==3.10.0 docker==6.1.3"
     volumes:
       - ./dags:/opt/airflow/dags
       - /var/run/docker.sock:/var/run/docker.sock
       - shared_data:/data
-    command: webserver
+    # остальное без изменений...
 
   airflow-scheduler:
     image: apache/airflow:2.7.3
-    depends_on:
-      postgres:
-        condition: service_healthy
-      airflow-init:
-        condition: service_completed_successfully
     environment:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
       DOCKER_HOST: unix:///var/run/docker.sock
+      PIP_ADDITIONAL_REQUIREMENTS: "apache-airflow-providers-docker==3.10.0 docker==6.1.3"
     volumes:
       - ./dags:/opt/airflow/dags
       - /var/run/docker.sock:/var/run/docker.sock
       - shared_data:/data
-    command: scheduler
 
   spark-job-build:
     build:
