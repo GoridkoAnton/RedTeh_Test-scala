@@ -12,23 +12,29 @@ RUN apt-get update && \
 
 # ---- Переменные окружения ----
 ENV SPARK_VERSION=3.5.1 \
-    HADOOP_VERSION=3.3 \
+    HADOOP_PROFILE=hadoop3 \
     SPARK_HOME=/opt/spark \
     PATH=/opt/spark/bin:/usr/local/sbt/bin:/usr/local/bin:/usr/bin:/bin
 
-# ---- Установка Apache Spark (предсобранный под Hadoop 3.3) ----
-# Пытаемся взять из archive.apache.org (стабильное зеркало)
-RUN curl -fsSL "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz" -o /tmp/spark.tgz || \
-    curl -fsSL "https://downloads.apache.org/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz" -o /tmp/spark.tgz && \
+# ---- Установка Apache Spark (предсобранный под hadoop3) ----
+# Пробуем несколько зеркал, чтобы не упасть на 404 одного из них
+RUN for U in \
+      "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-${HADOOP_PROFILE}.tgz" \
+      "https://dlcdn.apache.org/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-${HADOOP_PROFILE}.tgz" \
+      "https://downloads.apache.org/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-${HADOOP_PROFILE}.tgz" \
+    ; do \
+      echo "Trying $U" && curl -fSL "$U" -o /tmp/spark.tgz && break || echo "Mirror failed: $U"; \
+    done && \
+    test -s /tmp/spark.tgz && \
     tar -xzf /tmp/spark.tgz -C /opt && \
-    mv "/opt/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}" "${SPARK_HOME}" && \
+    mv "/opt/spark-${SPARK_VERSION}-bin-${HADOOP_PROFILE}" "${SPARK_HOME}" && \
     rm -f /tmp/spark.tgz
 
 # ---- JDBC-драйвер PostgreSQL ----
 ENV PG_JDBC_VER=42.7.3
 RUN curl -fsSL "https://jdbc.postgresql.org/download/postgresql-${PG_JDBC_VER}.jar" -o /opt/postgresql-jdbc.jar
 
-# ---- Установка sbt (tgz-вариант, без репозитория) ----
+# ---- Установка sbt (tgz-вариант) ----
 ENV SBT_VERSION=1.9.9
 RUN curl -fsSL "https://github.com/sbt/sbt/releases/download/v${SBT_VERSION}/sbt-${SBT_VERSION}.tgz" -o /tmp/sbt.tgz && \
     mkdir -p /usr/local/sbt && \
@@ -36,7 +42,7 @@ RUN curl -fsSL "https://github.com/sbt/sbt/releases/download/v${SBT_VERSION}/sbt
     ln -sf /usr/local/sbt/bin/sbt /usr/local/bin/sbt && \
     rm -f /tmp/sbt.tgz
 
-# ---- Рабочая директория с проектом ----
+# ---- Рабочая директория и проект ----
 WORKDIR /opt/job
 COPY . /opt/job
 
@@ -49,7 +55,6 @@ ENV DATA_DIR=/data/parquet \
     GIST_URL=https://gist.githubusercontent.com/oerasov/1905065dc6c0133267ec2a8167318399/raw/SmallFiles.scala
 
 # ---- Сборка JAR ----
-# Прогреваем кэш зависимостей и собираем fat-jar
 RUN sbt -v -Dsbt.log.noformat=true clean assembly
 
 # ---- Скрипт запуска ----
