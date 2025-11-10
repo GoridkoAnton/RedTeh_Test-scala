@@ -1,8 +1,6 @@
-version: "3.8"
-
 services:
   postgres:
-    image: postgres:13
+    image: postgres:15
     container_name: airflow-postgres
     environment:
       POSTGRES_USER: airflow
@@ -10,86 +8,109 @@ services:
       POSTGRES_DB: airflow
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    networks:
-      - airnet
+    networks: [airnet]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
 
   airflow-init:
     image: apache/airflow:2.7.3
     container_name: airflow-init
-    environment:
-      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
-      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
-      - AIRFLOW__CORE__LOAD_EXAMPLES=False
-      - PIP_ADDITIONAL_REQUIREMENTS=apache-airflow-providers-docker==3.10.0 docker==6.1.3
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      AIRFLOW__WEBSERVER__SECRET_KEY: mysecretkey
+      DOCKER_HOST: unix:///var/run/docker.sock
+      # ставим провайдер Docker + клиентский SDK внутрь контейнеров Airflow
+      PIP_ADDITIONAL_REQUIREMENTS: "apache-airflow-providers-docker==3.10.0 docker==6.1.3"
+    user: "0:0"
     volumes:
       - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
       - /var/run/docker.sock:/var/run/docker.sock
-    entrypoint: >
-      bash -c "airflow db init &&
-               airflow users create --username admin --firstname Admin --lastname User
-               --role Admin --email admin@example.com --password admin || true"
-    networks:
-      - airnet
+    command: >
+      bash -lc "
+        airflow db migrate &&
+        airflow users create
+          --username admin
+          --password admin
+          --firstname Admin
+          --lastname User
+          --role Admin
+          --email admin@example.com || true
+      "
+    networks: [airnet]
 
   airflow-webserver:
     image: apache/airflow:2.7.3
     container_name: airflow-webserver
-    restart: always
+    restart: unless-stopped
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      AIRFLOW__WEBSERVER__SECRET_KEY: mysecretkey
+      DOCKER_HOST: unix:///var/run/docker.sock
+      PIP_ADDITIONAL_REQUIREMENTS: "apache-airflow-providers-docker==3.10.0 docker==6.1.3"
     ports:
       - "8080:8080"
-    environment:
-      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
-      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
-      - AIRFLOW__CORE__LOAD_EXAMPLES=False
-      - AIRFLOW__WEBSERVER__SECRET_KEY=mysecretkey
-      - PIP_ADDITIONAL_REQUIREMENTS=apache-airflow-providers-docker==3.10.0 docker==6.1.3
-      - DOCKER_HOST=unix:///var/run/docker.sock
     volumes:
       - ./dags:/opt/airflow/dags
       - ./logs:/opt/airflow/logs
       - /var/run/docker.sock:/var/run/docker.sock
+      - shared_data:/data
     command: webserver
-    networks:
-      - airnet
+    networks: [airnet]
 
   airflow-scheduler:
     image: apache/airflow:2.7.3
     container_name: airflow-scheduler
-    restart: always
+    restart: unless-stopped
     depends_on:
-      - postgres
-      - airflow-webserver
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
     environment:
-      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
-      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
-      - AIRFLOW__CORE__LOAD_EXAMPLES=False
-      - AIRFLOW__WEBSERVER__SECRET_KEY=mysecretkey
-      - PIP_ADDITIONAL_REQUIREMENTS=apache-airflow-providers-docker==3.10.0 docker==6.1.3
-      - DOCKER_HOST=unix:///var/run/docker.sock
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      AIRFLOW__WEBSERVER__SECRET_KEY: mysecretkey
+      DOCKER_HOST: unix:///var/run/docker.sock
+      PIP_ADDITIONAL_REQUIREMENTS: "apache-airflow-providers-docker==3.10.0 docker==6.1.3"
     volumes:
       - ./dags:/opt/airflow/dags
       - ./logs:/opt/airflow/logs
       - /var/run/docker.sock:/var/run/docker.sock
+      - shared_data:/data
     command: scheduler
-    networks:
-      - airnet
+    networks: [airnet]
 
+  # сборка образа Spark job из нашего Dockerfile (полный Dockerfile ты уже получил)
   spark-job-build:
     build:
       context: .
       dockerfile: Dockerfile
     image: spark-compact-job:latest
     container_name: spark-job-build
-    networks:
-      - airnet
+    networks: [airnet]
 
 volumes:
   postgres_data:
-  logs:
+  shared_data:
+  # локальная папка ./logs уже монтируется, но том можно оставить при желании
+  # airflow_logs:
 
 networks:
   airnet:
