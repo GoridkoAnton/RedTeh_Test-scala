@@ -5,11 +5,10 @@ import scala.sys.process._
 import java.io.File
 
 object SparkCompactJob {
-
   def main(args: Array[String]): Unit = {
-    val spark = SparkSession.builder().appName("SparkCompactJob").getOrCreate()
-    val gistUrl = sys.env.getOrElse("GIST_URL", "")
-    val dataDir = sys.env.getOrElse("DATA_DIR", "/data/parquet")
+    val spark    = SparkSession.builder().appName("SparkCompactJob").getOrCreate()
+    val gistUrl  = sys.env.getOrElse("GIST_URL", "")
+    val dataDir  = sys.env.getOrElse("DATA_DIR", "/data/parquet")
     val targetMb = sys.env.getOrElse("TARGET_FILE_MB", "64").toInt
 
     try {
@@ -17,15 +16,13 @@ object SparkCompactJob {
         println(s"🔗 Loading external generator from Gist: $gistUrl")
         val tmpFile = new File("/tmp/SmallFiles.scala")
         Seq("curl", "-fsSL", gistUrl, "-o", tmpFile.getAbsolutePath).!
-        println("✅ Gist downloaded, executing in spark-shell...")
+        println("✅ Gist downloaded, executing in spark-shell ...")
         Seq("/opt/spark/bin/spark-shell", "-i", tmpFile.getAbsolutePath).!
       } else {
         println("ℹ️ Using built-in generator SmallFiles.generateSmallFiles")
         SmallFiles.generateSmallFiles(spark, dataDir)
       }
-
       compactToTargetSize(spark, dataDir, targetMb)
-
     } finally {
       spark.stop()
     }
@@ -39,7 +36,6 @@ object SparkCompactJob {
     val targetFiles   = math.max(math.ceil(totalRows.toDouble / rowsPerTarget).toInt, 1)
 
     println(s"Compacting ${totalRows} rows into ~${targetFiles} files of ${targetMb}MB each")
-
     df.coalesce(targetFiles)
       .write
       .mode(SaveMode.Overwrite)

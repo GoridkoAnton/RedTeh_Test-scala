@@ -10,7 +10,7 @@ with DAG(
     dag_id="spark_compact_daily",
     default_args=default_args,
     start_date=datetime(2024, 1, 1),
-    schedule=None,                # при необходимости: "0 14 * * *"
+    schedule=None,
     catchup=False,
     tags=["spark", "gist", "compact"],
 ) as dag:
@@ -22,8 +22,8 @@ with DAG(
         image="spark-compact-job:latest",
         api_version="auto",
         docker_url="unix://var/run/docker.sock",
-        network_mode="airnet",             # <-- СЕТЬ ВОЗВРАЩЕНА
-        auto_remove=False,                 # оставляем контейнер для просмотра логов
+        network_mode="airnet",       # важная сеть
+        auto_remove=False,           # чтобы посмотреть логи контейнера
         tty=True,
         mount_tmp_dir=False,
         mounts=[
@@ -41,7 +41,6 @@ with DAG(
             "SPARK_HOME": "/opt/spark",
             "DATA_DIR": "/data/parquet",
             "TARGET_FILE_MB": "64",
-            # RAW-ссылка на твой Gist
             "GIST_URL": "https://gist.githubusercontent.com/oerasov/1905065dc6c0133267ec2a8167318399/raw/SmallFiles.scala",
             "SMALLFILES_COLS": "10",
             "SMALLFILES_ROWS": "4000000",

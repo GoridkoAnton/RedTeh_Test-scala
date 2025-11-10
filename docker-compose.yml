@@ -19,24 +19,30 @@ services:
     container_name: airflow_scheduler
     depends_on:
       - postgres
-    env_file:
-      - .env
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
-      AIRFLOW__WEBSERVER__SECRET_KEY: "mysecret"
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "False"
-      # провайдер Docker для DockerOperator
+      AIRFLOW__WEBSERVER__SECRET_KEY: "mysecret"
+      # провайдер для DockerOperator
       PIP_ADDITIONAL_REQUIREMENTS: "apache-airflow-providers-docker==3.12.0 docker==6.1.3"
     volumes:
       - ./dags:/opt/airflow/dags
       - shared_data:/data
       - /var/run/docker.sock:/var/run/docker.sock
     command: >
-      bash -c "airflow db upgrade &&
-               airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin || true &&
-               airflow scheduler"
+      bash -lc "
+        airflow db upgrade &&
+        airflow users create
+          --username admin
+          --password admin
+          --firstname Admin
+          --lastname User
+          --role Admin
+          --email admin@example.com || true &&
+        airflow scheduler
+      "
     restart: always
     networks: [airnet]
 
@@ -46,14 +52,11 @@ services:
     depends_on:
       - postgres
       - airflow-scheduler
-    env_file:
-      - .env
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
       AIRFLOW__WEBSERVER__SECRET_KEY: "mysecret"
-      # тот же провайдер и SDK
       PIP_ADDITIONAL_REQUIREMENTS: "apache-airflow-providers-docker==3.12.0 docker==6.1.3"
     ports:
       - "8080:8080"
