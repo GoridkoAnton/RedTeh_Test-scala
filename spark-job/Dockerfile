@@ -1,61 +1,78 @@
-FROM eclipse-temurin:8-jdk
+# Базовый образ Java 8 (для совместимости со Spark 3.1.x)
+FROM openjdk:8-jdk
 
-ARG SPARK_VERSION=3.4.2
-ARG HADOOP_VERSION=3
-ENV SPARK_HOME=/opt/spark
-ENV PATH="$SPARK_HOME/bin:$PATH"
+# Метаданные
+LABEL maintainer="RedTeh DevOps" \
+      description="Spark Compact Job with Gist Loader"
 
-RUN apt-get update && apt-get install -y curl gnupg ca-certificates bash && rm -rf /var/lib/apt/lists/*
+# ------------------------------------------------------------------------------
+# 1. Установка системных зависимостей: curl, bash, scala
+# ------------------------------------------------------------------------------
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        curl \
+        bash \
+        scala \
+        unzip \
+        procps && \
+    rm -rf /var/lib/apt/lists/*
 
-RUN curl -fsSL https://repo.scala-sbt.org/scalasbt/debian/sbt-1.5.5.deb -o /tmp/sbt.deb \
- && dpkg -i /tmp/sbt.deb || true \
- && apt-get -f install -y \
- && rm /tmp/sbt.deb
+# ------------------------------------------------------------------------------
+# 2. Установка Apache Spark
+# ------------------------------------------------------------------------------
+ENV SPARK_VERSION=3.1.3 \
+    HADOOP_VERSION=3.2 \
+    SPARK_HOME=/opt/spark \
+    PATH=$PATH:/opt/spark/bin
 
-RUN curl -fsSL https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz \
-    | tar -xz -C /opt && mv /opt/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION} ${SPARK_HOME}
+RUN curl -fsSL https://downloads.apache.org/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz -o /tmp/spark.tgz && \
+    mkdir -p /opt && \
+    tar -xzf /tmp/spark.tgz -C /opt && \
+    mv /opt/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION} /opt/spark && \
+    rm /tmp/spark.tgz
 
-ARG PG_JDBC_VER=42.7.4
-RUN curl -fsSL -o /opt/postgresql-jdbc.jar https://jdbc.postgresql.org/download/postgresql-${PG_JDBC_VER}.jar
+# ------------------------------------------------------------------------------
+# 3. Добавление PostgreSQL JDBC-драйвера
+# ------------------------------------------------------------------------------
+RUN curl -fsSL https://jdbc.postgresql.org/download/postgresql-42.7.3.jar -o /opt/postgresql-jdbc.jar
 
+# ------------------------------------------------------------------------------
+# 4. Копируем исходники и собираем Scala-проект
+# ------------------------------------------------------------------------------
 WORKDIR /opt/job
-COPY build.sbt ./build.sbt
-COPY project ./project
-COPY src ./src
 
-RUN sbt clean assembly
+COPY ./spark-job /opt/job
 
-# создаём скрипт запуска без .sh, чтобы Airflow не пытался шаблонизировать
-RUN bash -c 'cat > /opt/job/run' <<'EOF'
+RUN ./sbt clean assembly
+
+# ------------------------------------------------------------------------------
+# 5. Подготавливаем скрипт запуска
+# ------------------------------------------------------------------------------
+RUN bash -c 'cat > /opt/job/run << "EOF" \
 #!/usr/bin/env bash
 set -euo pipefail
 
 DATA_DIR=${DATA_DIR:-/data/parquet}
 TARGET_FILE_MB=${TARGET_FILE_MB:-64}
-GENERATE_TOTAL_MB=${GENERATE_TOTAL_MB:-300}
 GIST_URL=${GIST_URL:-}
-PG_HOST=${PG_HOST:-postgres}
-PG_PORT=${PG_PORT:-5432}
-PG_DB=${PG_DB:-airflow}
-PG_USER=${PG_USER:-airflow}
-PG_PASSWORD=${PG_PASSWORD:-airflow}
 
-mkdir -p "$DATA_DIR"
+echo "🚀 Starting SparkCompactJob"
+echo "DATA_DIR=$DATA_DIR"
+echo "TARGET_FILE_MB=$TARGET_FILE_MB"
+echo "GIST_URL=$GIST_URL"
 
-"$SPARK_HOME/bin/spark-submit" \
+$SPARK_HOME/bin/spark-submit \
   --class com.example.SparkCompactJob \
   --master local[*] \
   --driver-class-path /opt/postgresql-jdbc.jar \
   --jars /opt/postgresql-jdbc.jar \
   /opt/job/target/scala-2.12/spark-compact-job-assembly.jar \
-  --data-dir "$DATA_DIR" \
-  --target-file-mb "$TARGET_FILE_MB" \
-  --generate-total-mb "$GENERATE_TOTAL_MB" \
-  --gist-url "$GIST_URL" \
-  --pg-host "$PG_HOST" --pg-port "$PG_PORT" --pg-db "$PG_DB" \
-  --pg-user "$PG_USER" --pg-password "$PG_PASSWORD"
-EOF
+  --data-dir=$DATA_DIR \
+  --target-file-mb=$TARGET_FILE_MB
+EOF' && chmod +x /opt/job/run
 
-RUN chmod +x /opt/job/run
-
-ENTRYPOINT ["/bin/bash"]
+# ------------------------------------------------------------------------------
+# 6. Указываем рабочую директорию и точку входа
+# ------------------------------------------------------------------------------
+WORKDIR /opt/job
+ENTRYPOINT ["/opt/job/run"]
