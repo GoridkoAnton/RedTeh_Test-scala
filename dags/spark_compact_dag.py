@@ -21,7 +21,7 @@ with DAG(
         task_id="run_spark_compact",
         image="spark-compact-job:latest",
         api_version="auto",
-        auto_remove=True,
+        auto_remove=False,
         docker_url="unix://var/run/docker.sock",
         network_mode="bridge",
 
