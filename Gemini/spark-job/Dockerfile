@@ -40,9 +40,4 @@ ENV SPARK_DATA_DIR=/opt/spark/data
 # Команда для запуска. Мы будем передавать параметры через spark-submit
 ENTRYPOINT ["/opt/bitnami/spark/bin/spark-submit"]
 
-CMD [
-    "--class", "SparkCompactJob",
-    "--master", "local[*]",
-    "./target/scala-2.12/spark-compact-job_2.12-0.1.0-SNAPSHOT.jar",
-    "local"
-]
+CMD ["--class", "SparkCompactJob", "--master", "local[*]", "./target/scala-2.12/spark-compact-job_2.12-0.1.0-SNAPSHOT.jar"]
