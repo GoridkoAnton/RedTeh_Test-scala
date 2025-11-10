@@ -1,39 +1,76 @@
-FROM bitnami/spark:3.5.1
+# Базовый JDK 17 (совместим со Spark 3.5.x)
+FROM eclipse-temurin:17-jdk-jammy
 
 USER root
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# Устанавливаем необходимые пакеты и Java
-RUN apt-get update && apt-get install -y curl openjdk-17-jdk scala && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+# ---- Пакеты ----
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      curl ca-certificates bash coreutils procps tar unzip gnupg && \
+    rm -rf /var/lib/apt/lists/*
 
-# Рабочая директория
+# ---- Переменные окружения ----
+ENV SPARK_VERSION=3.5.1 \
+    HADOOP_VERSION=3.3 \
+    SPARK_HOME=/opt/spark \
+    PATH=/opt/spark/bin:/usr/local/sbt/bin:/usr/local/bin:/usr/bin:/bin
+
+# ---- Установка Apache Spark (предсобранный под Hadoop 3.3) ----
+# Пытаемся взять из archive.apache.org (стабильное зеркало)
+RUN curl -fsSL "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz" -o /tmp/spark.tgz || \
+    curl -fsSL "https://downloads.apache.org/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz" -o /tmp/spark.tgz && \
+    tar -xzf /tmp/spark.tgz -C /opt && \
+    mv "/opt/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}" "${SPARK_HOME}" && \
+    rm -f /tmp/spark.tgz
+
+# ---- JDBC-драйвер PostgreSQL ----
+ENV PG_JDBC_VER=42.7.3
+RUN curl -fsSL "https://jdbc.postgresql.org/download/postgresql-${PG_JDBC_VER}.jar" -o /opt/postgresql-jdbc.jar
+
+# ---- Установка sbt (tgz-вариант, без репозитория) ----
+ENV SBT_VERSION=1.9.9
+RUN curl -fsSL "https://github.com/sbt/sbt/releases/download/v${SBT_VERSION}/sbt-${SBT_VERSION}.tgz" -o /tmp/sbt.tgz && \
+    mkdir -p /usr/local/sbt && \
+    tar -xzf /tmp/sbt.tgz -C /usr/local/sbt --strip-components=1 && \
+    ln -sf /usr/local/sbt/bin/sbt /usr/local/bin/sbt && \
+    rm -f /tmp/sbt.tgz
+
+# ---- Рабочая директория с проектом ----
 WORKDIR /opt/job
-
-# Копируем проект
 COPY . /opt/job
 
-# Загружаем JDBC-драйвер PostgreSQL
-RUN curl -L -o /opt/postgresql-jdbc.jar https://jdbc.postgresql.org/download/postgresql-42.6.0.jar
+# ---- ENV по умолчанию (можно переопределять из Airflow) ----
+ENV DATA_DIR=/data/parquet \
+    TARGET_FILE_MB=64 \
+    SMALLFILES_COLS=10 \
+    SMALLFILES_ROWS=4000000 \
+    SMALLFILES_PARTITIONS=30 \
+    GIST_URL=https://gist.githubusercontent.com/oerasov/1905065dc6c0133267ec2a8167318399/raw/SmallFiles.scala
 
-# Устанавливаем переменные окружения
-ENV SPARK_HOME=/opt/spark
-ENV PATH=$PATH:$SPARK_HOME/bin
-ENV DATA_DIR=/data/parquet
-ENV TARGET_FILE_MB=64
-ENV SMALLFILES_COLS=10
-ENV SMALLFILES_ROWS=4000000
-ENV SMALLFILES_PARTITIONS=30
-ENV GIST_URL=https://gist.githubusercontent.com/oerasov/1905065dc6c0133267ec2a8167318399/raw/SmallFiles.scala
+# ---- Сборка JAR ----
+# Прогреваем кэш зависимостей и собираем fat-jar
+RUN sbt -v -Dsbt.log.noformat=true clean assembly
 
-# Сборка Scala-приложения (если используется sbt)
-RUN if [ -f "build.sbt" ]; then \
-      curl -L -o sbt.tgz https://github.com/sbt/sbt/releases/download/v1.9.7/sbt-1.9.7.tgz && \
-      tar -xzf sbt.tgz -C /usr/local && \
-      ln -s /usr/local/sbt/bin/sbt /usr/bin/sbt && \
-      sbt clean assembly; \
-    else \
-      echo "build.sbt не найден — пропускаем сборку"; \
-    fi
+# ---- Скрипт запуска ----
+RUN cat > /opt/job/run <<'EOF' && chmod +x /opt/job/run
+#!/usr/bin/env bash
+set -euo pipefail
 
-# Команда по умолчанию (используется Airflow)
-CMD ["/bin/bash", "-c", "echo Spark job image ready"]
+echo "=== SparkCompactJob starting ==="
+echo "SPARK_HOME=${SPARK_HOME}"
+echo "DATA_DIR=${DATA_DIR}"
+echo "TARGET_FILE_MB=${TARGET_FILE_MB}"
+echo "GIST_URL=${GIST_URL}"
+
+"${SPARK_HOME}/bin/spark-submit" \
+  --class com.example.SparkCompactJob \
+  --master local[*] \
+  --driver-class-path /opt/postgresql-jdbc.jar \
+  --jars /opt/postgresql-jdbc.jar \
+  /opt/job/target/scala-2.12/spark-compact-job-assembly.jar \
+  --data-dir="${DATA_DIR}" \
+  --target-file-mb="${TARGET_FILE_MB}"
+EOF
+
+ENTRYPOINT ["/opt/job/run"]
