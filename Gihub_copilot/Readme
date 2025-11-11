@@ -1,3 +1,8 @@
+Что сделать на вашей машине (короткий список)
 
-
-sudo docker compose run --rm -v "$(pwd)/data":/data --entrypoint "" compact-parquet /opt/spark/bin/spark-submit --master local[4] --driver-memory 6g --class com.example.SmallFilesAndCompact /app/job.jar generate /data/parquet
+Создать папки mkdir -p ./logs ./dags ./plugins ./data
+sudo chmod 666 /var/run/docker.sock
+Подставить реальный путь в DAG: экспортировать PROJECT_DIR или отредактировать dags/compact_parquet_dag.py: export PROJECT_DIR=/home/redteh/project/RedTeh_Test-scala/Gihub_copilot
+Найти имя docker-сети и при необходимости задать COMPOSE_NETWORK_NAME (пример): docker network ls export COMPOSE_NETWORK_NAME=your_compose_network_name
+Пересобрать образ и поднять сервисы: docker compose build compact-parquet docker compose up -d postgres airflow
+После того как Airflow поднят, DAG будет доступен в UI; при запуске DockerOperator он запустит контейнер compact-parquet с SPARK_DRIVER_MEMORY=6g и примонтирует ./data.
