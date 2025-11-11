@@ -13,7 +13,6 @@ NETWORK_NAME = os.environ.get("COMPOSE_NETWORK_NAME")
 # - spark локально: 2 ядра (local[2])
 SPARK_DRIVER_MEMORY = os.environ.get("SPARK_DRIVER_MEMORY", "5g")
 CONTAINER_MEM_LIMIT = os.environ.get("CONTAINER_MEM_LIMIT", "6g")
-CONTAINER_MEMSWAP_LIMIT = os.environ.get("CONTAINER_MEMSWAP_LIMIT", "7g")
 SPARK_MASTER = os.environ.get("SPARK_MASTER", "local[2]")
 
 default_args = {
@@ -40,9 +39,8 @@ with DAG(
             "docker_url": "unix://var/run/docker.sock",
             "environment": {"SPARK_DRIVER_MEMORY": SPARK_DRIVER_MEMORY},
             "mount_tmp_dir": False,
-            # ресурсы контейнера — под host 8GB
+            # ресурсы контейнера — под host 8GB (memswap_limit удалён)
             "mem_limit": CONTAINER_MEM_LIMIT,
-            "memswap_limit": CONTAINER_MEMSWAP_LIMIT,
         }
 
         if PROJECT_DIR:
