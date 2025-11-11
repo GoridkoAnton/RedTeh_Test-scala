@@ -1,6 +1,7 @@
-# Multi-stage Dockerfile: build fat-jar inside the container using sbt 1.8.2,
+# Multi-stage Dockerfile: build fat-jar inside the container using sbt,
 # then runtime image with Spark. Ensures PostgreSQL JDBC driver is present
-# in $SPARK_HOME/jars so Spark JDBC writes work without extra CLI flags.
+# in $SPARK_HOME/jars and uses a small exec-form entrypoint wrapper that
+# launches spark-submit with forwarded arguments.
 
 # -----------------------
 # Stage 1: builder
@@ -22,7 +23,7 @@ RUN curl -fsSL https://raw.githubusercontent.com/paulp/sbt-extras/master/sbt -o 
 # Ensure sbt will consult central repositories
 RUN mkdir -p /root/.sbt && printf '[repositories]\nlocal\nmaven-central: https://repo1.maven.org/maven2/\nscalasbt-maven: https://repo.scala-sbt.org/scalasbt/maven-releases/\n' > /root/.sbt/repositories
 
-# Prefetch sbt launcher for sbt 1.8.2 and create md5 (avoid checksum failure)
+# Prefetch sbt launcher for sbt 1.8.2
 ENV SBT_VER=1.8.2
 RUN mkdir -p /root/.sbt/launchers/${SBT_VER} && \
     curl -fSL -o /root/.sbt/launchers/${SBT_VER}/sbt-launch.jar \
@@ -48,7 +49,7 @@ ENV HADOOP_VERSION=3
 ENV SPARK_HOME=/opt/spark
 ENV PATH=$PATH:$SPARK_HOME/bin
 
-# Default driver memory (can be overridden at runtime via ENV or spark-submit flags)
+# Default driver memory (can be overridden at runtime via ENV)
 ENV SPARK_DRIVER_MEMORY=6g
 
 RUN apt-get update && \
@@ -71,7 +72,11 @@ WORKDIR /app
 # Copy built jar from builder stage
 COPY --from=builder /out/job.jar /app/job.jar
 
-# Exec form with shell so ENV expansion works and arguments are forwarded.
-# Usage:
-#  docker run --rm -e SPARK_DRIVER_MEMORY=6g compact-parquet:latest generate /data/parquet
-ENTRYPOINT ["bash", "-lc", "/opt/spark/bin/spark-submit --master local[4] --driver-memory ${SPARK_DRIVER_MEMORY} --class com.example.SmallFilesAndCompact /app/job.jar \"$@\""]
+# Copy entrypoint wrapper and make executable
+# (entrypoint script should be present in the build context at app/entrypoint.sh)
+COPY app/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+# Use exec-form ENTRYPOINT so Docker args are appended and env is preserved
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD []

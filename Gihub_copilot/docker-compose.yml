@@ -17,16 +17,13 @@ services:
       AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
       AIRFLOW__CORE__FERNET_KEY: "fernet_key_placeholder"
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
-      # Если хотите, можно передать PROJECT_DIR / NETWORK_NAME сюда
-      # PROJECT_DIR: /home/redteh/project/RedTeh_Test-scala/Gihub_copilot
-      # COMPOSE_NETWORK_NAME: gihub_copilot_default
     depends_on:
       - postgres
     volumes:
-      - ./dags:/opt/airflow/dags:ro           # только DAGs (read-only — безопасно для демонстрации)
-      - /var/run/docker.sock:/var/run/docker.sock  # docker socket для DockerOperator
-      - airflow_logs:/opt/airflow/logs        # named volume — избежим permission проблем на хосте
-      - airflow_plugins:/opt/airflow/plugins  # named volume для plugins
+      - ./dags:/opt/airflow/dags:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - airflow_logs:/opt/airflow/logs
+      - airflow_plugins:/opt/airflow/plugins
     ports:
       - "8080:8080"
     command: >
@@ -40,8 +37,6 @@ services:
       context: .
       dockerfile: Dockerfile.spark.multistage
     image: compact-parquet:latest
-    # Оставляем ./data:/data чтобы вы видели результат compact на хосте.
-    # Если не нужно, можно заменить на named volume (data_volume:/data).
     volumes:
       - ./data:/data
     environment:
@@ -52,5 +47,3 @@ services:
 volumes:
   airflow_logs:
   airflow_plugins:
-  # если захотите делать data именованным томом, раскомментируйте:
-  # data_volume:
