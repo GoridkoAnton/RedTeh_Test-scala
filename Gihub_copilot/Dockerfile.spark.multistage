@@ -1,5 +1,6 @@
-# Multi-stage Dockerfile: build fat-jar with sbt-extras (builder),
-# then runtime image with Spark (runner).
+# Multi-stage Dockerfile: build fat-jar inside the container using sbt 1.8.2,
+# then runtime image with Spark. Ensures PostgreSQL JDBC driver is present
+# in $SPARK_HOME/jars so Spark JDBC writes work without extra CLI flags.
 
 # -----------------------
 # Stage 1: builder
@@ -8,29 +9,31 @@ FROM eclipse-temurin:11-jdk AS builder
 
 WORKDIR /src
 
-# Install basic tools and dependencies
+# Install tools
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-      curl ca-certificates git unzip tar gzip && \
+      curl ca-certificates git unzip tar gzip coreutils wget && \
     rm -rf /var/lib/apt/lists/*
 
-# Install sbt using sbt-extras wrapper (robust: downloads launcher dynamically)
-# This avoids relying on a specific GitHub release tarball name.
-RUN curl -fSL https://raw.githubusercontent.com/paulp/sbt-extras/master/sbt -o /usr/local/bin/sbt && \
+# Install sbt wrapper (sbt-extras)
+RUN curl -fsSL https://raw.githubusercontent.com/paulp/sbt-extras/master/sbt -o /usr/local/bin/sbt && \
     chmod +x /usr/local/bin/sbt
 
-# Ensure sbt will consult central repositories (helps in restricted envs)
+# Ensure sbt will consult central repositories
 RUN mkdir -p /root/.sbt && printf '[repositories]\nlocal\nmaven-central: https://repo1.maven.org/maven2/\nscalasbt-maven: https://repo.scala-sbt.org/scalasbt/maven-releases/\n' > /root/.sbt/repositories
 
-# Copy project files (use COPY . /src if you prefer)
-COPY build.sbt /src/
-COPY project /src/project
-COPY project/plugins.sbt /src/project/plugins.sbt
-COPY project/build.properties /src/project/build.properties
-COPY src /src/src
+# Prefetch sbt launcher for sbt 1.8.2 and create md5 (avoid checksum failure)
+ENV SBT_VER=1.8.2
+RUN mkdir -p /root/.sbt/launchers/${SBT_VER} && \
+    curl -fSL -o /root/.sbt/launchers/${SBT_VER}/sbt-launch.jar \
+      https://repo1.maven.org/maven2/org/scala-sbt/sbt-launch/${SBT_VER}/sbt-launch-${SBT_VER}.jar && \
+    (cd /root/.sbt/launchers/${SBT_VER} && md5sum sbt-launch.jar | awk '{print $1}' > sbt-launch.jar.md5)
+
+# Copy full project (simpler and less error-prone)
+COPY . /src
+WORKDIR /src
 
 # Build fat-jar (sbt-assembly must be configured in project/plugins.sbt)
-# Try to copy assembly jar to /out/job.jar; fallback to any jar if assembly name differs
 RUN sbt -batch -no-colors clean assembly && \
     mkdir -p /out && \
     sh -c 'cp target/scala-2.12/*assembly*.jar /out/job.jar || cp target/scala-2.12/*.jar /out/job.jar'
@@ -42,6 +45,11 @@ FROM eclipse-temurin:11-jre
 
 ENV SPARK_VERSION=3.4.2
 ENV HADOOP_VERSION=3
+ENV SPARK_HOME=/opt/spark
+ENV PATH=$PATH:$SPARK_HOME/bin
+
+# Default driver memory (can be overridden at runtime via ENV or spark-submit flags)
+ENV SPARK_DRIVER_MEMORY=6g
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends wget tar ca-certificates gzip && \
@@ -53,14 +61,17 @@ RUN wget -q https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-$
     mv /opt/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION} /opt/spark && \
     rm spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz
 
-ENV SPARK_HOME=/opt/spark
-ENV PATH=$PATH:$SPARK_HOME/bin
+# Ensure Spark jars dir exists then download PostgreSQL JDBC driver into Spark jars
+RUN mkdir -p /opt/spark/jars && \
+    wget -q -O /opt/spark/jars/postgresql-42.6.0.jar \
+      https://repo1.maven.org/maven2/org/postgresql/postgresql/42.6.0/postgresql-42.6.0.jar
 
 WORKDIR /app
 
 # Copy built jar from builder stage
 COPY --from=builder /out/job.jar /app/job.jar
 
-# spark-submit entrypoint; CLI args passed through
-ENTRYPOINT ["/opt/spark/bin/spark-submit", "--master", "local[4]", "--class", "com.example.SmallFilesAndCompact", "/app/job.jar"]
-# (не ставим CMD — вызывайте контейнер с аргументами, например: compact /data/parquet)
+# Exec form with shell so ENV expansion works and arguments are forwarded.
+# Usage:
+#  docker run --rm -e SPARK_DRIVER_MEMORY=6g compact-parquet:latest generate /data/parquet
+ENTRYPOINT ["bash", "-lc", "/opt/spark/bin/spark-submit --master local[4] --driver-memory ${SPARK_DRIVER_MEMORY} --class com.example.SmallFilesAndCompact /app/job.jar \"$@\""]

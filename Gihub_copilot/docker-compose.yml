@@ -40,7 +40,10 @@ services:
     image: compact-parquet:latest
     volumes:
       - ./data:/data
-    # сервис обычно используется через docker compose run для генерации/compact,
-    # но монтирование ./data:/data гарантирует, что все файлы появятся на хосте.
+    environment:
+      # Default driver memory available to the container (DAG can override)
+      SPARK_DRIVER_MEMORY: 6g
+    depends_on:
+      - postgres
 
-# (опционально можно добавить named volumes здесь)
+# End of compose file
