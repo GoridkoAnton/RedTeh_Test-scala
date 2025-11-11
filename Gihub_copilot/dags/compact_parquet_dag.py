@@ -4,13 +4,15 @@ from airflow import DAG
 from airflow.providers.docker.operators.docker import DockerOperator
 from docker.types import Mount
 
-PROJECT_DIR = os.environ.get("PROJECT_DIR")
+PROJECT_DIR = os.environ.get("PROJECT_DIR")  # если задан — будет примонтирован host/data и host/data/spark_tmp
 NETWORK_NAME = os.environ.get("COMPOSE_NETWORK_NAME")
 
-# Настройки для host с ~12GB RAM (устойчивый профиль)
-SPARK_DRIVER_MEMORY = os.environ.get("SPARK_DRIVER_MEMORY", "7g")   # JVM driver
-CONTAINER_MEM_LIMIT = os.environ.get("CONTAINER_MEM_LIMIT", "11g")  # cgroup limit для контейнера
-SPARK_MASTER = os.environ.get("SPARK_MASTER", "local[1]")          # один поток, уменьшенный параллелизм
+# Рекомендуемые значения для хоста ~12GB
+SPARK_DRIVER_MEMORY = os.environ.get("SPARK_DRIVER_MEMORY", "6g")              # JVM heap
+SPARK_DRIVER_MEMORY_OVERHEAD = os.environ.get("SPARK_DRIVER_MEMORY_OVERHEAD", "2g")  # вне-heap
+CONTAINER_MEM_LIMIT = os.environ.get("CONTAINER_MEM_LIMIT", "11g")             # cgroup limit контейнера
+SPARK_MASTER = os.environ.get("SPARK_MASTER", "local[1]")                      # уменьшённый параллелизм
+SPARK_LOCAL_DIRS = os.environ.get("SPARK_LOCAL_DIRS", "/tmp/spark_local")      # примонтированный tmp на хосте
 
 default_args = {
     "owner": "airflow",
@@ -27,21 +29,35 @@ with DAG(
 ) as dag:
 
     def make_docker_kwargs(command_list):
+        env = {
+            "SPARK_DRIVER_MEMORY": SPARK_DRIVER_MEMORY,
+            "SPARK_DRIVER_MEMORY_OVERHEAD": SPARK_DRIVER_MEMORY_OVERHEAD,
+            "SPARK_MASTER": SPARK_MASTER,
+            "SPARK_LOCAL_DIRS": SPARK_LOCAL_DIRS,
+        }
+
         kwargs = {
             "image": "compact-parquet:latest",
             "api_version": "auto",
             "auto_remove": True,
             "command": command_list,
             "docker_url": "unix://var/run/docker.sock",
-            "environment": {"SPARK_DRIVER_MEMORY": SPARK_DRIVER_MEMORY, "SPARK_MASTER": SPARK_MASTER},
+            "environment": env,
             "mount_tmp_dir": False,
             "mem_limit": CONTAINER_MEM_LIMIT,
         }
 
+        mounts = []
         if PROJECT_DIR:
             host_data = os.path.join(PROJECT_DIR, "data")
-            data_mount = Mount(source=host_data, target="/data", type="bind", read_only=False)
-            kwargs["mounts"] = [data_mount]
+            # mount host data -> /data (your dataset)
+            mounts.append(Mount(source=os.path.join(host_data), target="/data", type="bind", read_only=False))
+            # mount host tmp for spark local dirs -> /tmp/spark_local
+            host_spark_tmp = os.path.join(host_data, "spark_tmp")
+            mounts.append(Mount(source=host_spark_tmp, target=SPARK_LOCAL_DIRS, type="bind", read_only=False))
+
+        if mounts:
+            kwargs["mounts"] = mounts
 
         if NETWORK_NAME:
             kwargs["network_mode"] = NETWORK_NAME
