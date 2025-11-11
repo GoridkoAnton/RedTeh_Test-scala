@@ -1,4 +1,3 @@
-version: '3.8'
 services:
   postgres:
     image: postgres:13
@@ -39,6 +38,9 @@ services:
       context: .
       dockerfile: Dockerfile.spark.multistage
     image: compact-parquet:latest
-    # контейнер как сервис не запускается автоматически; образ используется Airflow DockerOperator
-    # вручную можно запустить так:
-    # docker run --rm -v $(pwd)/data:/data --network <compose_network> compact-parquet:latest compact /data/parquet 50 jdbc:postgresql://postgres:5432/airflow airflow airflow
+    volumes:
+      - ./data:/data
+    # сервис обычно используется через docker compose run для генерации/compact,
+    # но монтирование ./data:/data гарантирует, что все файлы появятся на хосте.
+
+# (опционально можно добавить named volumes здесь)

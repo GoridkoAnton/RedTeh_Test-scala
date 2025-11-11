@@ -1,0 +1,3 @@
+
+
+sudo docker compose run --rm -v "$(pwd)/data":/data --entrypoint "" compact-parquet /opt/spark/bin/spark-submit --master local[4] --driver-memory 6g --class com.example.SmallFilesAndCompact /app/job.jar generate /data/parquet
