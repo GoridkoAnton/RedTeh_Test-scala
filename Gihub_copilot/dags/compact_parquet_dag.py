@@ -3,13 +3,13 @@ import os
 
 from airflow import DAG
 from airflow.providers.docker.operators.docker import DockerOperator
+from docker.types import Mount
 
-# Настройте эту константу в имя вашей docker-сети созданной docker-compose (обычно <project>_default)
+# Укажите имя docker-сети вашего docker-compose (обычно <project>_default)
 NETWORK_NAME = os.environ.get("COMPOSE_NETWORK_NAME", "gihub_copilot_default")
 
-# Абсолютный путь к каталогу проекта на хосте, чтобы DockerOperator мог смонтировать ./data
-# Задайте PROJECT_DIR как переменную окружения в Airflow, иначе укажите полный путь здесь.
-PROJECT_DIR = os.environ.get("PROJECT_DIR", "/home/youruser/path/to/project")
+# Укажите абсолютный путь к корню проекта на хосте или задайте PROJECT_DIR в environment Airflow
+PROJECT_DIR = os.environ.get("PROJECT_DIR", "/home/redteh/project/RedTeh_Test-scala/Gihub_copilot")
 
 default_args = {
     "owner": "airflow",
@@ -23,6 +23,9 @@ with DAG(
     catchup=False,
 ) as dag:
 
+    # Примонтировать host:${PROJECT_DIR}/data -> container:/data через docker.types.Mount
+    data_mount = Mount(source=f"{PROJECT_DIR}/data", target="/data", type="bind", read_only=False)
+
     generate = DockerOperator(
         task_id="generate_parquet",
         image="compact-parquet:latest",
@@ -32,8 +35,7 @@ with DAG(
         docker_url="unix://var/run/docker.sock",
         network_mode=NETWORK_NAME,
         environment={"SPARK_DRIVER_MEMORY": "6g"},
-        # Bind mount host data directory into the container so files persist on host
-        volumes=[f"{PROJECT_DIR}/data:/data"],
+        mounts=[data_mount],
     )
 
     compact = DockerOperator(
@@ -45,7 +47,7 @@ with DAG(
         docker_url="unix://var/run/docker.sock",
         network_mode=NETWORK_NAME,
         environment={"SPARK_DRIVER_MEMORY": "6g"},
-        volumes=[f"{PROJECT_DIR}/data:/data"],
+        mounts=[data_mount],
     )
 
     generate >> compact
