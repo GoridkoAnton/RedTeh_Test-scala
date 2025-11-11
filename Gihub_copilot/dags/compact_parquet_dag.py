@@ -7,10 +7,10 @@ from docker.types import Mount
 PROJECT_DIR = os.environ.get("PROJECT_DIR")
 NETWORK_NAME = os.environ.get("COMPOSE_NETWORK_NAME")
 
-# Настройки для host с ~12GB RAM
-SPARK_DRIVER_MEMORY = os.environ.get("SPARK_DRIVER_MEMORY", "8g")   # JVM driver
-CONTAINER_MEM_LIMIT = os.environ.get("CONTAINER_MEM_LIMIT", "10g")  # cgroup limit для контейнера
-SPARK_MASTER = os.environ.get("SPARK_MASTER", "local[2]")          # параллелизм
+# Настройки для host с ~12GB RAM (устойчивый профиль)
+SPARK_DRIVER_MEMORY = os.environ.get("SPARK_DRIVER_MEMORY", "7g")   # JVM driver
+CONTAINER_MEM_LIMIT = os.environ.get("CONTAINER_MEM_LIMIT", "11g")  # cgroup limit для контейнера
+SPARK_MASTER = os.environ.get("SPARK_MASTER", "local[1]")          # один поток, уменьшенный параллелизм
 
 default_args = {
     "owner": "airflow",
