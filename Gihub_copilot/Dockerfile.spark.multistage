@@ -1,4 +1,4 @@
-# Multi-stage Dockerfile: build fat-jar with sbt installed manually (builder),
+# Multi-stage Dockerfile: build fat-jar with sbt-extras (builder),
 # then runtime image with Spark (runner).
 
 # -----------------------
@@ -8,23 +8,21 @@ FROM eclipse-temurin:11-jdk AS builder
 
 WORKDIR /src
 
-# Install basic tools
+# Install basic tools and dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-      curl ca-certificates git unzip tar && \
+      curl ca-certificates git unzip tar gzip && \
     rm -rf /var/lib/apt/lists/*
 
-# Install sbt by downloading official sbt binary tarball (avoid apt repo issues)
-ENV SBT_VERSION=1.8.22
-RUN curl -fSL -o /tmp/sbt.tgz https://github.com/sbt/sbt/releases/download/v${SBT_VERSION}/sbt-${SBT_VERSION}.tgz && \
-    tar -xzf /tmp/sbt.tgz -C /opt && \
-    ln -s /opt/sbt/bin/sbt /usr/local/bin/sbt && \
-    rm /tmp/sbt.tgz
+# Install sbt using sbt-extras wrapper (robust: downloads launcher dynamically)
+# This avoids relying on a specific GitHub release tarball name.
+RUN curl -fSL https://raw.githubusercontent.com/paulp/sbt-extras/master/sbt -o /usr/local/bin/sbt && \
+    chmod +x /usr/local/bin/sbt
 
-# Ensure sbt will consult central repositories (helps in restricted environments)
+# Ensure sbt will consult central repositories (helps in restricted envs)
 RUN mkdir -p /root/.sbt && printf '[repositories]\nlocal\nmaven-central: https://repo1.maven.org/maven2/\nscalasbt-maven: https://repo.scala-sbt.org/scalasbt/maven-releases/\n' > /root/.sbt/repositories
 
-# Copy project files (you can change to COPY . /src if preferred)
+# Copy project files (use COPY . /src if you prefer)
 COPY build.sbt /src/
 COPY project /src/project
 COPY project/plugins.sbt /src/project/plugins.sbt
@@ -46,12 +44,11 @@ ENV SPARK_VERSION=3.4.2
 ENV HADOOP_VERSION=3
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends wget tar ca-certificates && \
+    apt-get install -y --no-install-recommends wget tar ca-certificates gzip && \
     rm -rf /var/lib/apt/lists/*
 
 # Download prebuilt Spark
 RUN wget -q https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz && \
-    tar -xzf spark-${SPARK_VERSION}-bin-hadoop${HADO_VERSION}.tgz -C /opt/ || true && \
     tar -xzf spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz -C /opt/ && \
     mv /opt/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION} /opt/spark && \
     rm spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz
