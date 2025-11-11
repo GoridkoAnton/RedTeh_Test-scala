@@ -1,22 +1,45 @@
-# Stage 1: build fat-jar with sbt (builder)
-# Использует sbt образ с JDK11. При необходимости переключите тег на доступный в вашем окружении.
-FROM sbt:1.8.22-jdk11 AS builder
+# Multi-stage Dockerfile: build fat-jar with sbt installed manually (builder),
+# then runtime image with Spark (runner).
+#
+# Builder stage uses an OpenJDK base and installs sbt from the official repo.
+# If apt-key is not available in your environment, see the fallback notes below.
+
+# -----------------------
+# Stage 1: builder
+# -----------------------
+FROM openjdk:11-jdk-slim AS builder
 
 WORKDIR /src
 
-# Копируем только необходимые файлы для быстрой кэшируемой сборки
+# Install tools required to add sbt repo and build
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      curl gnupg apt-transport-https ca-certificates unzip git && \
+    rm -rf /var/lib/apt/lists/*
+
+# Add scala-sbt repo and its key, then install sbt
+# Note: apt-key usage may be deprecated on some systems but still works in many images.
+RUN curl -sL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x99E82A75642AC823" | apt-key add - || true && \
+    echo "deb https://repo.scala-sbt.org/scalasbt/debian all main" > /etc/apt/sources.list.d/sbt.list && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends sbt && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy only necessary files to leverage Docker layer cache
 COPY build.sbt /src/
 COPY project /src/project
 COPY project/plugins.sbt /src/project/plugins.sbt
 COPY src /src/src
 
-# Собираем fat-jar (sbt-assembly должен быть в project/plugins.sbt)
-# Копируем результат в /out/job.jar (попытка по маске assembly, fallback - любой jar)
+# Build fat-jar (sbt-assembly must be configured in project/plugins.sbt)
+# Copy result to /out/job.jar (try assembly-pattern, fallback to any jar)
 RUN sbt -batch -no-colors clean assembly && \
     mkdir -p /out && \
     sh -c 'cp target/scala-2.12/*assembly*.jar /out/job.jar || cp target/scala-2.12/*.jar /out/job.jar'
 
+# -----------------------
 # Stage 2: runtime with Spark
+# -----------------------
 FROM eclipse-temurin:11-jre
 
 ENV SPARK_VERSION=3.4.2
@@ -37,8 +60,8 @@ ENV PATH=$PATH:$SPARK_HOME/bin
 
 WORKDIR /app
 
-# Копируем собранный jar из builder stage
+# Copy built jar from builder stage
 COPY --from=builder /out/job.jar /app/job.jar
 
-# Запуск spark-submit; аргументы передаются в конец команды
+# spark-submit entrypoint; CLI args passed through
 ENTRYPOINT ["bash", "-lc", "/opt/spark/bin/spark-submit --master local[4] --class com.example.SmallFilesAndCompact /app/job.jar $@"]
