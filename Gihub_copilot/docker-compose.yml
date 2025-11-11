@@ -56,9 +56,9 @@ services:
       - SPARK_DRIVER_MEMORY_OVERHEAD=${SPARK_DRIVER_MEMORY_OVERHEAD:-1g}
       - SPARK_LOCAL_DIRS=${SPARK_LOCAL_DIRS:-/tmp/spark_local}
       - CONTAINER_MEM_LIMIT=${CONTAINER_MEM_LIMIT:-11g}
-    # Оставляем ./data чтобы можно было увидеть сгенерированные parquet-файлы на хосте
+    # Пробрасываем хостовую /data внутрь контейнера compact-parquet, чтобы при прямом запуске файлы тоже попадали на хост.
     volumes:
-      - ./data:/data
+      - /data:/data
     ports:
       - "4040:4040"
 

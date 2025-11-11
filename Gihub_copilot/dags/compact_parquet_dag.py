@@ -4,13 +4,12 @@ from airflow import DAG
 from airflow.providers.docker.operators.docker import DockerOperator
 from docker.types import Mount
 
-# Параметры (берутся из окружения или используются значения по умолчанию)
+# Параметры для spark и контейнера
 SPARK_MASTER = os.environ.get("SPARK_MASTER", "local[1]")
 SPARK_DRIVER_MEMORY = os.environ.get("SPARK_DRIVER_MEMORY", "8g")
 SPARK_DRIVER_MEMORY_OVERHEAD = os.environ.get("SPARK_DRIVER_MEMORY_OVERHEAD", "1g")
 SPARK_LOCAL_DIRS = os.environ.get("SPARK_LOCAL_DIRS", "/tmp/spark_local")
 CONTAINER_MEM_LIMIT = os.environ.get("CONTAINER_MEM_LIMIT", "11g")
-PROJECT_DIR = os.environ.get("PROJECT_DIR")  # необязательно; если задан — будет примонтирован host/data
 
 default_args = {
     "owner": "airflow",
@@ -27,23 +26,26 @@ with DAG(
 ) as dag:
 
     def make_docker_kwargs(subcommand, args):
-        # собираем строку spark-submit — исполняется через shell entrypoint
-        # убедитесь, что в образе доступны /opt/spark/bin/spark-submit и /app/job.jar
+        # spark-submit как одна shell-строка (entrypoint переопределяется ниже)
+        app_path = "/app/job.jar"
+        app_class = "com.example.SmallFilesAndCompact"
+        app_args = f"{subcommand} {' '.join(args)}"
+
         spark_submit = (
             f"/opt/spark/bin/spark-submit "
             f"--master {SPARK_MASTER} "
             f"--driver-memory {SPARK_DRIVER_MEMORY} "
             f"--conf spark.driver.memoryOverhead={SPARK_DRIVER_MEMORY_OVERHEAD} "
             f"--conf spark.local.dir={SPARK_LOCAL_DIRS} "
-            f"--class com.example.SmallFilesAndCompact /app/job.jar "
-            f"{subcommand} {' '.join(args)}"
+            f"--class {app_class} {app_path} "
+            f"{app_args}"
         )
 
         kwargs = {
             "image": "compact-parquet:latest",
             "api_version": "auto",
             "auto_remove": True,
-            # запуск через shell, чтобы в команду вошли все опции
+            # запускаем через shell, чтобы прокинуть всю строку spark-submit
             "entrypoint": ["/bin/sh", "-c"],
             "command": spark_submit,
             "docker_url": "unix://var/run/docker.sock",
@@ -57,17 +59,11 @@ with DAG(
             "mem_limit": CONTAINER_MEM_LIMIT,
         }
 
-        mounts = []
-        # монтируем ./data на /data, если каталог существует относительно рабочей директории compose
-        # DockerOperator будет пытаться смонтировать по абсолютному пути, поэтому compose/airflow должно знать PROJECT_DIR
-        if PROJECT_DIR:
-            host_data = os.path.join(PROJECT_DIR, "data")
-            mounts.append(Mount(source=host_data, target="/data", type="bind", read_only=False))
-        else:
-            # если PROJECT_DIR не задан, пробуем относительный ./data (compose mount настроен на ./data)
-            mounts.append(Mount(source=os.path.abspath("./data"), target="/data", type="bind", read_only=False))
+        # Монтируем хостовую /data в контейнер задачи — source указываем абсолютным хостовым путём
+        # DockerOperator выполняется в Airflow-контейнере, но Docker daemon создаёт mount на хосте,
+        # поэтому source должен существовать на Docker host: /data
+        kwargs["mounts"] = [Mount(source="/data", target="/data", type="bind", read_only=False)]
 
-        kwargs["mounts"] = mounts
         return kwargs
 
     gen_kwargs = make_docker_kwargs("generate", ["/data/parquet"])
