@@ -1,13 +1,10 @@
 # Multi-stage Dockerfile: build fat-jar with sbt installed manually (builder),
 # then runtime image with Spark (runner).
-#
-# Builder stage uses an OpenJDK base and installs sbt from the official repo.
-# If apt-key is not available in your environment, see the fallback notes below.
 
 # -----------------------
 # Stage 1: builder
 # -----------------------
-FROM openjdk:11-jdk-slim AS builder
+FROM eclipse-temurin:11-jdk AS builder
 
 WORKDIR /src
 
@@ -18,7 +15,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Add scala-sbt repo and its key, then install sbt
-# Note: apt-key usage may be deprecated on some systems but still works in many images.
+# Note: apt-key may be deprecated on some systems but still works in many images.
 RUN curl -sL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x99E82A75642AC823" | apt-key add - || true && \
     echo "deb https://repo.scala-sbt.org/scalasbt/debian all main" > /etc/apt/sources.list.d/sbt.list && \
     apt-get update && \
