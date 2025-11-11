@@ -20,16 +20,12 @@ services:
     depends_on:
       - postgres
     environment:
-      # Подставьте абсолютный путь к проекту на хосте, если хотите монтировать данные и spark_tmp
-      - PROJECT_DIR=${PROJECT_DIR:-/abs/path/to/project}
-      # Параметры для Spark в запускаемых контейнерах (DAG читает эти переменные)
       - SPARK_DRIVER_MEMORY=${SPARK_DRIVER_MEMORY:-8g}
       - SPARK_DRIVER_MEMORY_OVERHEAD=${SPARK_DRIVER_MEMORY_OVERHEAD:-1g}
       - SPARK_LOCAL_DIRS=${SPARK_LOCAL_DIRS:-/tmp/spark_local}
       - CONTAINER_MEM_LIMIT=${CONTAINER_MEM_LIMIT:-11g}
       - SPARK_MASTER=${SPARK_MASTER:-local[1]}
       - COMPOSE_NETWORK_NAME=${COMPOSE_NETWORK_NAME:-}
-      # Airflow DB/other minimal envs (настройте под ваш стэк)
       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
       - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
       - AIRFLOW__CORE__FERNET_KEY=fernet_key_placeholder
@@ -59,10 +55,10 @@ services:
       - SPARK_DRIVER_MEMORY=${SPARK_DRIVER_MEMORY:-8g}
       - SPARK_DRIVER_MEMORY_OVERHEAD=${SPARK_DRIVER_MEMORY_OVERHEAD:-1g}
       - SPARK_LOCAL_DIRS=${SPARK_LOCAL_DIRS:-/tmp/spark_local}
+      - CONTAINER_MEM_LIMIT=${CONTAINER_MEM_LIMIT:-11g}
+    # Оставляем ./data чтобы можно было увидеть сгенерированные parquet-файлы на хосте
     volumes:
-      # монтируем data чтобы контейнер мог читать/писать parquet и чтобы spark.local.dir мог spill'иться на диск хоста
       - ./data:/data
-      - ./data/spark_tmp:/tmp/spark_local
     ports:
       - "4040:4040"
 
