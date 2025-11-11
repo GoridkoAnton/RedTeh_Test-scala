@@ -33,3 +33,12 @@ services:
                airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin ||
                true &&
                airflow scheduler & airflow webserver"
+
+  compact-parquet:
+    build:
+      context: .
+      dockerfile: Dockerfile.spark.multistage
+    image: compact-parquet:latest
+    # контейнер как сервис не запускается автоматически; образ используется Airflow DockerOperator
+    # вручную можно запустить так:
+    # docker run --rm -v $(pwd)/data:/data --network <compose_network> compact-parquet:latest compact /data/parquet 50 jdbc:postgresql://postgres:5432/airflow airflow airflow
