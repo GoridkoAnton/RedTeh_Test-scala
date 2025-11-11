@@ -26,6 +26,7 @@ services:
       - airflow_plugins:/opt/airflow/plugins
     ports:
       - "8080:8080"
+    restart: unless-stopped
     command: >
       bash -c "airflow db upgrade &&
                airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin ||
