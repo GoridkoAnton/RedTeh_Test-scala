@@ -7,18 +7,15 @@ from docker.types import Mount
 PROJECT_DIR = os.environ.get("PROJECT_DIR")
 NETWORK_NAME = os.environ.get("COMPOSE_NETWORK_NAME")
 
-# Параметры под хост c 8GB RAM:
-# - контейнер: 6g
-# - JVM driver: 5g
-# - spark локально: 2 ядра (local[2])
-SPARK_DRIVER_MEMORY = os.environ.get("SPARK_DRIVER_MEMORY", "5g")
-CONTAINER_MEM_LIMIT = os.environ.get("CONTAINER_MEM_LIMIT", "6g")
-SPARK_MASTER = os.environ.get("SPARK_MASTER", "local[2]")
+# Настройки для host с ~12GB RAM
+SPARK_DRIVER_MEMORY = os.environ.get("SPARK_DRIVER_MEMORY", "8g")   # JVM driver
+CONTAINER_MEM_LIMIT = os.environ.get("CONTAINER_MEM_LIMIT", "10g")  # cgroup limit для контейнера
+SPARK_MASTER = os.environ.get("SPARK_MASTER", "local[2]")          # параллелизм
 
 default_args = {
     "owner": "airflow",
     "start_date": datetime(2025, 1, 1),
-    "retries": 1,
+    "retries": 2,
     "retry_delay": timedelta(minutes=1),
 }
 
@@ -34,12 +31,10 @@ with DAG(
             "image": "compact-parquet:latest",
             "api_version": "auto",
             "auto_remove": True,
-            # передаём аргументы приложения — entrypoint в образе сделает spark-submit
             "command": command_list,
             "docker_url": "unix://var/run/docker.sock",
-            "environment": {"SPARK_DRIVER_MEMORY": SPARK_DRIVER_MEMORY},
+            "environment": {"SPARK_DRIVER_MEMORY": SPARK_DRIVER_MEMORY, "SPARK_MASTER": SPARK_MASTER},
             "mount_tmp_dir": False,
-            # ресурсы контейнера — под host 8GB (memswap_limit удалён)
             "mem_limit": CONTAINER_MEM_LIMIT,
         }
 
@@ -53,7 +48,6 @@ with DAG(
 
         return kwargs
 
-    # мы вызываем entrypoint в образе как: entrypoint запускает spark-submit и пробрасывает "$@"
     gen_cmd = ["generate", "/data/parquet"]
     gen_kwargs = make_docker_kwargs(gen_cmd)
     gen_kwargs["task_id"] = "generate_parquet"
