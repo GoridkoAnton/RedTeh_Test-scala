@@ -23,11 +23,11 @@ services:
     image: apache/airflow:2.7.1
     restart: unless-stopped
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     environment:
       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
       - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
-      # Ключ подставится из .env: AIRFLOW__CORE__FERNET_KEY=...
       - AIRFLOW__CORE__FERNET_KEY=${AIRFLOW__CORE__FERNET_KEY}
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
       - SPARK_DRIVER_MEMORY=${SPARK_DRIVER_MEMORY:-20g}
@@ -39,7 +39,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - airflow_logs:/opt/airflow/logs
       - airflow_plugins:/opt/airflow/plugins
-    # Inline entrypoint: ждём Postgres, инициализируем БД и стартуем scheduler + webserver
+      # Персистентный стейт для флага инициализации
+      - airflow_state:/opt/airflow/.state
+    # entrypoint делает init только если отсутствует /opt/airflow/.state/.initialized
     entrypoint: ["/bin/bash", "-c", "\
       set -euo pipefail; \
       echo 'Waiting for Postgres...'; \
@@ -48,14 +50,22 @@ services:
       else \
         until (echo > /dev/tcp/${POSTGRES_HOST:-postgres}/${POSTGRES_PORT:-5432}) >/dev/null 2>&1; do sleep 1; done; \
       fi; \
-      echo 'Postgres available — initializing Airflow DB (idempotent)...'; \
-      # Проверяем, что fernet ключ задан (иначе init упадёт)
+      echo 'Postgres available'; \
+      mkdir -p /opt/airflow/.state; chmod 700 /opt/airflow/.state || true; \
       if [ -z \"${AIRFLOW__CORE__FERNET_KEY:-}\" ]; then \
-        echo 'ERROR: AIRFLOW__CORE__FERNET_KEY is not set. Please run deploy script to create .env or set the env variable.'; \
+        echo 'ERROR: AIRFLOW__CORE__FERNET_KEY not set. Aborting init (set via .env or env var).'; \
         exit 1; \
       fi; \
-      airflow db init; \
-      airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin || true; \
+      if [ ! -f /opt/airflow/.state/.initialized ]; then \
+        echo 'Initialization flag not found — running airflow db init and creating admin user (only once)'; \
+        airflow db init; \
+        airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin || true; \
+        touch /opt/airflow/.state/.initialized; \
+        echo 'Initialization complete: /opt/airflow/.state/.initialized created'; \
+      else \
+        echo 'Already initialized — skipping db init'; \
+      fi; \
+      echo 'Starting scheduler and webserver'; \
       airflow scheduler & \
       exec airflow webserver \
     "]
@@ -75,7 +85,6 @@ services:
       - SPARK_DRIVER_MEMORY_OVERHEAD=${SPARK_DRIVER_MEMORY_OVERHEAD:-2g}
       - SPARK_LOCAL_DIRS=${SPARK_LOCAL_DIRS:-/tmp/spark_local}
       - CONTAINER_MEM_LIMIT=${CONTAINER_MEM_LIMIT:-24g}
-    # Монтируем хостовую /data внутрь контейнера compact-parquet, чтобы parquet сохранялся на хосте
     volumes:
       - /data:/data
     ports:
@@ -85,3 +94,5 @@ volumes:
   airflow_logs:
   airflow_plugins:
   postgres_data:
+  # named volume to persist initialization flag across container recreates
+  airflow_state:
