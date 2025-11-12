@@ -13,54 +13,34 @@ services:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -h 127.0.0.1 -p 5432"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
   airflow:
     image: apache/airflow:2.7.1
     restart: unless-stopped
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     environment:
-      - SPARK_DRIVER_MEMORY=${SPARK_DRIVER_MEMORY:-8g}
-      - SPARK_DRIVER_MEMORY_OVERHEAD=${SPARK_DRIVER_MEMORY_OVERHEAD:-1g}
-      - SPARK_LOCAL_DIRS=${SPARK_LOCAL_DIRS:-/tmp/spark_local}
-      - CONTAINER_MEM_LIMIT=${CONTAINER_MEM_LIMIT:-11g}
-      - SPARK_MASTER=${SPARK_MASTER:-local[1]}
-      - COMPOSE_NETWORK_NAME=${COMPOSE_NETWORK_NAME:-}
       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
       - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
       - AIRFLOW__CORE__FERNET_KEY=fernet_key_placeholder
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - SPARK_DRIVER_MEMORY=${SPARK_DRIVER_MEMORY:-20g}
+      - CONTAINER_MEM_LIMIT=${CONTAINER_MEM_LIMIT:-24g}
     volumes:
       - ./dags:/opt/airflow/dags:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - airflow_logs:/opt/airflow/logs
       - airflow_plugins:/opt/airflow/plugins
+      - ./scripts/airflow-entrypoint.sh:/opt/airflow/airflow-entrypoint.sh:ro
+    entrypoint: ["/bin/bash", "-c", "/opt/airflow/airflow-entrypoint.sh"]
     ports:
       - "8080:8080"
-    command: >
-      bash -c "airflow db upgrade &&
-               airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin ||
-               true &&
-               airflow scheduler & airflow webserver"
-
-  compact-parquet:
-    build:
-      context: .
-      dockerfile: Dockerfile.spark.multistage
-    image: compact-parquet:latest
-    restart: on-failure
-    depends_on:
-      - postgres
-    environment:
-      - SPARK_DRIVER_MEMORY=${SPARK_DRIVER_MEMORY:-8g}
-      - SPARK_DRIVER_MEMORY_OVERHEAD=${SPARK_DRIVER_MEMORY_OVERHEAD:-1g}
-      - SPARK_LOCAL_DIRS=${SPARK_LOCAL_DIRS:-/tmp/spark_local}
-      - CONTAINER_MEM_LIMIT=${CONTAINER_MEM_LIMIT:-11g}
-    # Пробрасываем хостовую /data внутрь контейнера compact-parquet, чтобы при прямом запуске файлы тоже попадали на хост.
-    volumes:
-      - /data:/data
-    ports:
-      - "4040:4040"
 
 volumes:
   airflow_logs:
