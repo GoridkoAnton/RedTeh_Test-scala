@@ -4,7 +4,7 @@ from airflow import DAG
 from airflow.providers.docker.operators.docker import DockerOperator
 from docker.types import Mount
 
-# Параметры, можно переопределить через .env
+# Параметры (можно переопределить через .env)
 SPARK_MASTER = os.environ.get("SPARK_MASTER", "local[1]")
 SPARK_DRIVER_MEMORY = os.environ.get("SPARK_DRIVER_MEMORY", "20g")
 SPARK_DRIVER_MEMORY_OVERHEAD = os.environ.get("SPARK_DRIVER_MEMORY_OVERHEAD", "2g")
@@ -25,7 +25,7 @@ with DAG(
     catchup=False,
 ) as dag:
 
-    def make_docker_kwargs(subcommand, args):
+    def make_docker_kwargs(subcommand, args, keep_container=False):
         app_path = "/app/job.jar"
         app_class = "com.example.SmallFilesAndCompact"
         app_args = f"{subcommand} {' '.join(args)}"
@@ -40,24 +40,30 @@ with DAG(
             f"{app_args}"
         )
 
-        # wrapper: проверка наличия JAR, листинг /app, лог команды и запуск
+        # diagnostic wrapper: show mounts, df, id, ls /data, then run spark-submit
         wrapper = (
             "set -euo pipefail; "
+            "echo '=== DIAGNOSTIC START ==='; "
+            "echo 'Whoami and uid:'; id || true; "
+            "echo 'Mounts:'; mount || true; "
+            "echo 'df -h /data:'; df -h /data || true; "
+            "echo 'ls -la /data before:'; ls -la /data || true; "
             f"echo 'Checking for application jar: {app_path}'; "
             f"if [ ! -f '{app_path}' ]; then "
-            f"  echo 'ERROR: application jar not found at {app_path}'; "
-            f"  echo 'List /app:'; ls -la /app || true; "
-            f"  exit 2; "
+            f"  echo 'ERROR: application jar not found at {app_path}'; echo 'List /app:'; ls -la /app || true; exit 2; "
             f"fi; "
             f"echo 'Contents of /app:'; ls -la /app || true; "
             f"echo 'Running command:'; echo \"{spark_submit}\"; "
-            f"{spark_submit}"
+            f"{spark_submit}; "
+            "echo 'ls -la /data after:'; ls -la /data || true; "
+            "echo '=== DIAGNOSTIC END ==='; "
         )
 
         kwargs = {
             "image": "compact-parquet:latest",
             "api_version": "auto",
-            "auto_remove": True,
+            # keep_container True → auto_remove False, для отладки
+            "auto_remove": not keep_container,
             "entrypoint": ["/bin/sh", "-c"],
             "command": wrapper,
             "docker_url": "unix://var/run/docker.sock",
@@ -71,18 +77,21 @@ with DAG(
             "mem_limit": CONTAINER_MEM_LIMIT,
         }
 
-        # Монтируем host /data в контейнер, чтобы parquet-файлы попадали на хост
+        # Bind-mount host /data to container /data so parquet goes to host
         kwargs["mounts"] = [Mount(source="/data", target="/data", type="bind", read_only=False)]
 
         return kwargs
 
-    gen_kwargs = make_docker_kwargs("generate", ["/data/parquet"])
+    # generate: keep_container=True for diagnostics (container won't be auto-removed)
+    gen_kwargs = make_docker_kwargs("generate", ["/data/parquet"], keep_container=True)
     gen_kwargs["task_id"] = "generate_parquet"
     generate = DockerOperator(**gen_kwargs)
 
+    # compact_and_register: normal behavior (auto_remove True)
     comp_kwargs = make_docker_kwargs(
         "compact",
         ["/data/parquet", "50", "jdbc:postgresql://postgres:5432/airflow", "airflow", "airflow"],
+        keep_container=False,
     )
     comp_kwargs["task_id"] = "compact_and_register"
     compact = DockerOperator(**comp_kwargs)
