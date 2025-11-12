@@ -35,10 +35,10 @@ services:
       - SPARK_MASTER=${SPARK_MASTER:-local[4]}
     volumes:
       - ./dags:/opt/airflow/dags:ro
-      - parquet_data:/data
       - /var/run/docker.sock:/var/run/docker.sock
       - airflow_logs:/opt/airflow/logs
       - airflow_plugins:/opt/airflow/plugins
+      - parquet_data:/data
     # ENTRYPOINT: инициализация выполняется только один раз внутри контейнера (флаг /home/airflow/.initialized)
     entrypoint: ["/bin/bash", "-c", "\
       set -euo pipefail; \
