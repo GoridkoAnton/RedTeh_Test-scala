@@ -40,29 +40,21 @@ with DAG(
             f"{app_args}"
         )
 
-        # diagnostic wrapper: show mounts, df, id, ls /data before/after, then run spark-submit
+        # wrapper: логируем команду, проверяем jar и /data
         wrapper = (
             "set -euo pipefail; "
-            "echo '=== DIAGNOSTIC START ==='; "
-            "echo 'Whoami and uid:'; id || true; "
-            "echo 'Mounts (proc):'; cat /proc/mounts || true; "
-            "echo 'df -h /data:'; df -h /data || true; "
-            "echo 'ls -la /data before:'; ls -la /data || true; "
             f"echo 'Checking for application jar: {app_path}'; "
-            f"if [ ! -f '{app_path}' ]; then "
-            f"  echo 'ERROR: application jar not found at {app_path}'; echo 'List /app:'; ls -la /app || true; exit 2; "
-            f"fi; "
-            f"echo 'Contents of /app:'; ls -la /app || true; "
-            f"echo 'Running command:'; echo \"{spark_submit}\"; "
-            f"{spark_submit}; "
-            "echo 'ls -la /data after:'; ls -la /data || true; "
-            "echo '=== DIAGNOSTIC END ==='; "
+            f"if [ ! -f '{app_path}' ]; then echo 'ERROR: no jar at {app_path}'; ls -la /app || true; exit 2; fi; "
+            "echo 'Contents of /app:'; ls -la /app || true; "
+            "echo 'Contents of /data before:'; ls -la /data || true; "
+            f"echo 'Running: {spark_submit}'; {spark_submit}; "
+            "echo 'Contents of /data after:'; ls -la /data || true; "
         )
 
         kwargs = {
             "image": "compact-parquet:latest",
             "api_version": "auto",
-            # keep_container True -> auto_remove False (для диагностики)
+            # авто-удаление контейнера зависит от keep_container
             "auto_remove": not keep_container,
             "entrypoint": ["/bin/sh", "-c"],
             "command": wrapper,
@@ -77,17 +69,17 @@ with DAG(
             "mem_limit": CONTAINER_MEM_LIMIT,
         }
 
-        # Правильно: используем mounts — список docker.types.Mount для bind
+        # bind-mount host /data -> container /data
         kwargs["mounts"] = [Mount(source="/data", target="/data", type="bind", read_only=False)]
 
         return kwargs
 
-    # generate: для диагностики держим контейнер (keep_container=True)
+    # generate: keep_container=True -> auto_remove=False (контейнер останется после выполнения)
     gen_kwargs = make_docker_kwargs("generate", ["/data/parquet"], keep_container=True)
     gen_kwargs["task_id"] = "generate_parquet"
     generate = DockerOperator(**gen_kwargs)
 
-    # compact_and_register: обычное поведение (контейнер удаляется)
+    # compact_and_register: можно оставить auto_remove=True (по умолчанию keep_container=False)
     comp_kwargs = make_docker_kwargs(
         "compact",
         ["/data/parquet", "50", "jdbc:postgresql://postgres:5432/airflow", "airflow", "airflow"],
