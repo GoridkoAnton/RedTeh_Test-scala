@@ -14,7 +14,7 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -h 127.0.0.1 -p 5432"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-airflow} -d ${POSTGRES_DB:-airflow} -h 127.0.0.1 -p 5432"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -23,8 +23,7 @@ services:
     image: apache/airflow:2.7.1
     restart: unless-stopped
     depends_on:
-      postgres:
-        condition: service_healthy
+      - postgres
     environment:
       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
       - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
@@ -37,8 +36,21 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - airflow_logs:/opt/airflow/logs
       - airflow_plugins:/opt/airflow/plugins
-      - ./scripts/airflow-entrypoint.sh:/opt/airflow/airflow-entrypoint.sh:ro
-    entrypoint: ["/bin/bash", "-c", "/opt/airflow/airflow-entrypoint.sh"]
+    # Inline entrypoint: ждём БД, инициализируем, создаём пользователя, стартуем scheduler + webserver
+    entrypoint: ["/bin/bash", "-c", "\
+      set -euo pipefail; \
+      echo 'Waiting for Postgres...'; \
+      if command -v pg_isready >/dev/null 2>&1; then \
+        until pg_isready -h \"${POSTGRES_HOST:-postgres}\" -p \"${POSTGRES_PORT:-5432}\" -U \"${POSTGRES_USER:-airflow}\" >/dev/null 2>&1; do sleep 1; done; \
+      else \
+        until (echo > /dev/tcp/${POSTGRES_HOST:-postgres}/${POSTGRES_PORT:-5432}) >/dev/null 2>&1; do sleep 1; done; \
+      fi; \
+      echo 'Postgres available, initializing Airflow DB...'; \
+      airflow db init; \
+      airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin || true; \
+      airflow scheduler & \
+      exec airflow webserver \
+    "]
     ports:
       - "8080:8080"
 
