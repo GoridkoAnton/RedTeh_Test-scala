@@ -55,7 +55,7 @@ def make_wrapper(mode: str, extra_args: str = "") -> str:
 
 # ===== DAG =====
 with DAG(
-    dag_id="compact_parquet_docker_test",
+    dag_id="compact_parquet_docker",
     default_args=default_args,
     schedule_interval="0 2 * * *",  # ежедневно в 02:00 UTC
     catchup=False,
@@ -113,4 +113,8 @@ with DAG(
         environment={
             "SPARK_DRIVER_MEMORY": SPARK_DRIVER_MEMORY,
             "SPARK_DRIVER_MEMORY_OVERHEAD": SPARK_DRIVER_MEMORY_OVERHEAD,
-            "SPARK_MASTER":_
+            "SPARK_MASTER": SPARK_MASTER,
+        },
+    )
+
+    prep >> generate >> compact
