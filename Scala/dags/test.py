@@ -5,7 +5,7 @@ from airflow import DAG
 from airflow.providers.docker.operators.docker import DockerOperator
 from docker.types import Mount
 
-# Параметры
+# ===== Параметры =====
 COMPOSE_NETWORK = os.environ.get("COMPOSE_NETWORK", "scala_default")
 SPARK_MASTER = os.environ.get("SPARK_MASTER", "local[1]")
 SPARK_DRIVER_MEMORY = os.environ.get("SPARK_DRIVER_MEMORY", "20g")
@@ -25,11 +25,11 @@ default_args = {
     "retry_delay": timedelta(minutes=1),
 }
 
+# ===== Команда с диагностикой =====
 def make_wrapper(mode: str, extra_args: str = "") -> str:
     if mode == "generate":
         job_args = f"generate {DATA_DIR}"
     else:
-        # compact expects: <src_dir> <max_files> <jdbc_url> <user> <pass>
         job_args = f"compact {DATA_DIR} 50 {POSTGRES_JDBC} {POSTGRES_USER} {POSTGRES_PASSWORD}"
 
     spark_submit = (
@@ -41,22 +41,23 @@ def make_wrapper(mode: str, extra_args: str = "") -> str:
         f"--class com.example.SmallFilesAndCompact {JOB_JAR_PATH} {job_args} {extra_args}"
     )
 
-    # лаконичная диагностика
     return (
         "set -eu; "
         "echo '=== DIAGNOSTIC START ==='; "
-        "id; grep ' /data ' /proc/mounts || true; "
-        "echo 'ls -la /data (before):'; ls -la /data || true; "
-        "mkdir -p /data; "
+        "id; grep \" /data \" /proc/mounts || true; "
+        "echo 'ls -la /data (root):'; ls -la /data || true; "
+        f"echo 'mkdir -p {DATA_DIR} and probe write'; "
+        f"mkdir -p {DATA_DIR} && date +%s > {DATA_DIR}/_probe.txt && ls -la {DATA_DIR} || true; "
         f"echo 'Running: {spark_submit}'; {spark_submit}; "
-        "echo 'ls -la /data (after):'; ls -la /data || true; "
+        f"echo 'ls -la {DATA_DIR} (after):'; ls -la {DATA_DIR} || true; "
         "echo '=== DIAGNOSTIC END ===';"
     )
 
+# ===== DAG =====
 with DAG(
     dag_id="compact_parquet_docker_test",
     default_args=default_args,
-    schedule_interval="0 2 * * *",       # ежедневно в 02:00 UTC
+    schedule_interval="0 2 * * *",  # ежедневно в 02:00 UTC
     catchup=False,
     max_active_runs=1,
     tags=["docker", "spark"],
@@ -64,11 +65,11 @@ with DAG(
 
     mounts = [Mount(source="parquet_data", target="/data", type="volume")]
 
-    # (опционально) подготовка прав на том
+    # Подготовка прав (однократно перед Spark)
     prep = DockerOperator(
         task_id="prepare_volume",
         image="alpine:3.20",
-        command=["sh", "-lc", "chown -R 50000:0 /data && chmod -R g+rwX /data && ls -ld /data"],
+        command=["sh", "-lc", "mkdir -p /data/parquet && chown -R 50000:0 /data && chmod -R g+rwX /data && ls -ld /data/parquet"],
         docker_url="unix://var/run/docker.sock",
         network_mode=COMPOSE_NETWORK,
         mounts=mounts,
@@ -89,7 +90,6 @@ with DAG(
         mount_tmp_dir=False,
         auto_remove=(not KEEP_CONTAINERS),
         tty=False,
-        # на проде можно убрать user="0" и писать от нужного пользователя образа
         user="0",
         environment={
             "SPARK_DRIVER_MEMORY": SPARK_DRIVER_MEMORY,
@@ -113,8 +113,4 @@ with DAG(
         environment={
             "SPARK_DRIVER_MEMORY": SPARK_DRIVER_MEMORY,
             "SPARK_DRIVER_MEMORY_OVERHEAD": SPARK_DRIVER_MEMORY_OVERHEAD,
-            "SPARK_MASTER": SPARK_MASTER,
-        },
-    )
-
-    prep >> generate >> compact
+            "SPARK_MASTER":_
