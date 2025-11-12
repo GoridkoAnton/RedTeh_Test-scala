@@ -4,12 +4,12 @@ from airflow import DAG
 from airflow.providers.docker.operators.docker import DockerOperator
 from docker.types import Mount
 
-# Параметры для spark и контейнера
+# Параметры, можно переопределить через .env
 SPARK_MASTER = os.environ.get("SPARK_MASTER", "local[1]")
-SPARK_DRIVER_MEMORY = os.environ.get("SPARK_DRIVER_MEMORY", "8g")
-SPARK_DRIVER_MEMORY_OVERHEAD = os.environ.get("SPARK_DRIVER_MEMORY_OVERHEAD", "1g")
+SPARK_DRIVER_MEMORY = os.environ.get("SPARK_DRIVER_MEMORY", "20g")
+SPARK_DRIVER_MEMORY_OVERHEAD = os.environ.get("SPARK_DRIVER_MEMORY_OVERHEAD", "2g")
 SPARK_LOCAL_DIRS = os.environ.get("SPARK_LOCAL_DIRS", "/tmp/spark_local")
-CONTAINER_MEM_LIMIT = os.environ.get("CONTAINER_MEM_LIMIT", "11g")
+CONTAINER_MEM_LIMIT = os.environ.get("CONTAINER_MEM_LIMIT", "24g")
 
 default_args = {
     "owner": "airflow",
@@ -26,7 +26,6 @@ with DAG(
 ) as dag:
 
     def make_docker_kwargs(subcommand, args):
-        # spark-submit как одна shell-строка (entrypoint переопределяется ниже)
         app_path = "/app/job.jar"
         app_class = "com.example.SmallFilesAndCompact"
         app_args = f"{subcommand} {' '.join(args)}"
@@ -41,13 +40,26 @@ with DAG(
             f"{app_args}"
         )
 
+        # wrapper: проверка наличия JAR, листинг /app, лог команды и запуск
+        wrapper = (
+            "set -euo pipefail; "
+            f"echo 'Checking for application jar: {app_path}'; "
+            f"if [ ! -f '{app_path}' ]; then "
+            f"  echo 'ERROR: application jar not found at {app_path}'; "
+            f"  echo 'List /app:'; ls -la /app || true; "
+            f"  exit 2; "
+            f"fi; "
+            f"echo 'Contents of /app:'; ls -la /app || true; "
+            f"echo 'Running command:'; echo \"{spark_submit}\"; "
+            f"{spark_submit}"
+        )
+
         kwargs = {
             "image": "compact-parquet:latest",
             "api_version": "auto",
             "auto_remove": True,
-            # запускаем через shell, чтобы прокинуть всю строку spark-submit
             "entrypoint": ["/bin/sh", "-c"],
-            "command": spark_submit,
+            "command": wrapper,
             "docker_url": "unix://var/run/docker.sock",
             "environment": {
                 "SPARK_DRIVER_MEMORY": SPARK_DRIVER_MEMORY,
@@ -59,9 +71,7 @@ with DAG(
             "mem_limit": CONTAINER_MEM_LIMIT,
         }
 
-        # Монтируем хостовую /data в контейнер задачи — source указываем абсолютным хостовым путём
-        # DockerOperator выполняется в Airflow-контейнере, но Docker daemon создаёт mount на хосте,
-        # поэтому source должен существовать на Docker host: /data
+        # Монтируем host /data в контейнер, чтобы parquet-файлы попадали на хост
         kwargs["mounts"] = [Mount(source="/data", target="/data", type="bind", read_only=False)]
 
         return kwargs
