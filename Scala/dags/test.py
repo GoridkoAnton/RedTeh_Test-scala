@@ -3,9 +3,10 @@ import os
 
 from airflow import DAG
 from airflow.providers.docker.operators.docker import DockerOperator
+from docker.types import Mount
 
-# Параметры (можно переопределять через env)
-COMPOSE_NETWORK = os.environ.get("COMPOSE_NETWORK", "scala_default")  # имя сети docker-compose
+# Параметры
+COMPOSE_NETWORK = os.environ.get("COMPOSE_NETWORK", "scala_default")   # имя docker-сети
 SPARK_MASTER = os.environ.get("SPARK_MASTER", "local[1]")
 SPARK_DRIVER_MEMORY = os.environ.get("SPARK_DRIVER_MEMORY", "20g")
 SPARK_DRIVER_MEMORY_OVERHEAD = os.environ.get("SPARK_DRIVER_MEMORY_OVERHEAD", "2g")
@@ -27,18 +28,16 @@ default_args = {
 with DAG(
     dag_id="compact_parquet_docker",
     default_args=default_args,
-    schedule_interval="0 2 * * *",   # ежедневно в 02:00 (UTC)
+    schedule_interval="0 2 * * *",   # ежедневно в 02:00 UTC
     catchup=False,
     max_active_runs=1,
     tags=["docker", "spark"],
 ) as dag:
 
     def make_command(mode: str, extra_args: str = "") -> str:
-        # mode: "generate" или "compact"
         if mode == "generate":
             job_args = f"generate {DATA_DIR}"
         else:
-            # compact expects: <src_dir> <max_files> <jdbc_url> <user> <pass>
             job_args = f"compact {DATA_DIR} 50 {POSTGRES_JDBC} {POSTGRES_USER} {POSTGRES_PASSWORD}"
 
         spark_submit = (
@@ -51,21 +50,20 @@ with DAG(
         )
 
         # Диагностика + запуск
-        wrapper = (
+        return (
             "set -eu; "
             "echo '=== DIAGNOSTIC START ==='; "
             "echo 'id:'; id; "
-            "echo 'mounts:'; cat /proc/mounts | grep ' /data ' || true; "
+            "echo 'mounts for /data:'; cat /proc/mounts | grep ' /data ' || true; "
             "echo 'ls -la /data (before):'; ls -la /data || true; "
             "echo 'probe write:'; date +%s > /data/_probe.txt && ls -la /data/_probe.txt || true; "
             f"echo 'Running: {spark_submit}'; {spark_submit}; "
             "echo 'ls -la /data (after):'; ls -la /data || true; "
             "echo '=== DIAGNOSTIC END ===';"
         )
-        return wrapper
 
-    # ВАЖНО: используем volumes, чтобы точно примонтировать /data хоста в /data контейнера
-    docker_volumes = ["/data:/data:rw"]
+    # Биндим ХОСТОВОЕ /data в /data контейнера таски
+    mounts = [Mount(source="/data", target="/data", type="bind", read_only=False)]
 
     generate = DockerOperator(
         task_id="generate_parquet",
@@ -74,13 +72,12 @@ with DAG(
         command=make_command("generate"),
         entrypoint=["/bin/sh", "-c"],
         docker_url="unix://var/run/docker.sock",
-        network_mode=COMPOSE_NETWORK,
-        volumes=docker_volumes,
+        network_mode=COMPOSE_NETWORK,   # см. примечание про COMPOSE_PROJECT_NAME
+        mounts=mounts,
         mount_tmp_dir=False,
         auto_remove=(not KEEP_CONTAINERS),
         tty=False,
-        get_logs=True,
-        user="0",  # можно убрать после проверки прав на /data
+        user="0",   # временно, чтобы исключить проблемы прав; уберёшь потом
         environment={
             "SPARK_DRIVER_MEMORY": SPARK_DRIVER_MEMORY,
             "SPARK_DRIVER_MEMORY_OVERHEAD": SPARK_DRIVER_MEMORY_OVERHEAD,
@@ -96,12 +93,11 @@ with DAG(
         entrypoint=["/bin/sh", "-c"],
         docker_url="unix://var/run/docker.sock",
         network_mode=COMPOSE_NETWORK,
-        volumes=docker_volumes,
+        mounts=mounts,
         mount_tmp_dir=False,
         auto_remove=(not KEEP_CONTAINERS),
         tty=False,
-        get_logs=True,
-        user="0",  # можно убрать после проверки прав на /data
+        user="0",
         environment={
             "SPARK_DRIVER_MEMORY": SPARK_DRIVER_MEMORY,
             "SPARK_DRIVER_MEMORY_OVERHEAD": SPARK_DRIVER_MEMORY_OVERHEAD,
