@@ -3,7 +3,7 @@ import os
 from airflow import DAG
 from airflow.operators.bash import BashOperator
 
-# Параметры — можно переопределить через environment / .env
+# Параметры — можно переопределять через environment / .env
 COMPOSE_NETWORK = os.environ.get("COMPOSE_NETWORK", "scala_default")  # замените при необходимости
 SPARK_MASTER = os.environ.get("SPARK_MASTER", "local[1]")
 SPARK_DRIVER_MEMORY = os.environ.get("SPARK_DRIVER_MEMORY", "20g")
@@ -28,7 +28,6 @@ with DAG(
     schedule_interval="0 2 * * *",  # каждый день в 02:00 UTC; замените на cron по ТЗ если нужно
     catchup=False,                  # не выполнять пропущенные запуски в прошлом
     max_active_runs=1,
-    catchup_by_default=False,
     tags=["docker", "bash"],
 ) as dag:
 
