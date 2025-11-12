@@ -55,7 +55,7 @@ def make_wrapper(mode: str, extra_args: str = "") -> str:
 
 # ===== DAG =====
 with DAG(
-    dag_id="compact_parquet_docker",
+    dag_id="compact_parquet_docker_test",
     default_args=default_args,
     schedule_interval="0 2 * * *",  # ежедневно в 02:00 UTC
     catchup=False,
