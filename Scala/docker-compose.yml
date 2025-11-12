@@ -84,7 +84,8 @@ services:
       - CONTAINER_MEM_LIMIT=${CONTAINER_MEM_LIMIT:-24g}
     # Пробрасываем только /data на хост — parquet-файлы будут сохраняться на хосте
     volumes:
-      - /data:/data
+    - parquet_data:/data
+#      - /data:/data
     ports:
       - "4040:4040"
 
