@@ -3,8 +3,8 @@ import os
 from airflow import DAG
 from airflow.operators.bash import BashOperator
 
-# Настройки окружения — при необходимости переопределите в env или в системе
-COMPOSE_NETWORK = os.environ.get("COMPOSE_NETWORK", "scala_default")  # <-- замените на вашу сеть если нужно
+# Настройки окружения — можно переопределять через переменные окружения Airflow или .env
+COMPOSE_NETWORK = os.environ.get("COMPOSE_NETWORK", "scala_default")  # замените при необходимости
 SPARK_MASTER = os.environ.get("SPARK_MASTER", "local[1]")
 SPARK_DRIVER_MEMORY = os.environ.get("SPARK_DRIVER_MEMORY", "20g")
 SPARK_DRIVER_MEMORY_OVERHEAD = os.environ.get("SPARK_DRIVER_MEMORY_OVERHEAD", "2g")
@@ -30,17 +30,16 @@ with DAG(
     tags=["docker", "bash"],
 ) as dag:
 
-    # Generate: запускаем контейнер, он создаёт parquet и автоматически удаляется (--rm)
     generate_cmd = f"""
-set -euo pipefail
+set -eu
 echo "=== GENERATE START ==="
-echo "Using image: {JOB_IMAGE}"
+echo "Image: {JOB_IMAGE}"
 echo "Writing to host path: {DATA_DIR}"
 docker run --rm --name compact_generate_{{{{ ts_nodash }}}} \
   --network {COMPOSE_NETWORK} \
   -v /data:/data \
   --entrypoint /bin/sh {JOB_IMAGE} -c '\
-    set -euo pipefail; \
+    set -eu; \
     /opt/spark/bin/spark-submit --master {SPARK_MASTER} \
       --driver-memory {SPARK_DRIVER_MEMORY} \
       --conf spark.driver.memoryOverhead={SPARK_DRIVER_MEMORY_OVERHEAD} \
@@ -55,16 +54,15 @@ echo "=== GENERATE DONE ==="
         env={"COMPOSE_NETWORK": COMPOSE_NETWORK},
     )
 
-    # Compact + register: запускаем контейнер, он делает compact и записывает в БД, затем удаляется (--rm)
     compact_cmd = f"""
-set -euo pipefail
+set -eu
 echo "=== COMPACT START ==="
-echo "Using image: {JOB_IMAGE}"
+echo "Image: {JOB_IMAGE}"
 docker run --rm --name compact_compact_{{{{ ts_nodash }}}} \
   --network {COMPOSE_NETWORK} \
   -v /data:/data \
   --entrypoint /bin/sh {JOB_IMAGE} -c '\
-    set -euo pipefail; \
+    set -eu; \
     /opt/spark/bin/spark-submit --master {SPARK_MASTER} \
       --driver-memory {SPARK_DRIVER_MEMORY} \
       --conf spark.driver.memoryOverhead={SPARK_DRIVER_MEMORY_OVERHEAD} \
