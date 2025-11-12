@@ -35,7 +35,7 @@ services:
       - SPARK_MASTER=${SPARK_MASTER:-local[4]}
     volumes:
       - ./dags:/opt/airflow/dags:ro
-      - /data:/data:rw
+      - parquet_data:/data
       - /var/run/docker.sock:/var/run/docker.sock
       - airflow_logs:/opt/airflow/logs
       - airflow_plugins:/opt/airflow/plugins
