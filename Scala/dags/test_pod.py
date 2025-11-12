@@ -17,7 +17,7 @@ with DAG(
         command=(
             "set -eux; "
             "id; "
-            "echo '= /proc/mounts for /data ='; grep ' /data ' /proc/mounts || true; "
+            "echo '= /proc/mounts for /data ='; grep \" /data \" /proc/mounts || true; "
             "echo '= ls -la /data before ='; ls -la /data || true; "
             "mkdir -p /data; date > /data/_from_dag_alive.txt; "
             "echo '= ls -la /data after ='; ls -la /data || true; "
@@ -26,6 +26,7 @@ with DAG(
         docker_url="unix://var/run/docker.sock",
         network_mode=os.environ.get("COMPOSE_NETWORK","scala_default"),
         mounts=[Mount(source="parquet_data", target="/data", type="volume")],
+        container_name="dbg-mount-{{ ts_nodash }}",   # <— предсказуемое имя
         auto_remove=False,
         mount_tmp_dir=False,
         tty=False,
