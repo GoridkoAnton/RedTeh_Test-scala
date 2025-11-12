@@ -1,5 +1,5 @@
-from airflow import DAG
 import os
+from airflow import DAG
 from airflow.providers.docker.operators.docker import DockerOperator
 from docker.types import Mount
 from datetime import datetime
