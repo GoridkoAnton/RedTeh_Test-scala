@@ -27,32 +27,73 @@ services:
     environment:
       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
       - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
-      - AIRFLOW__CORE__FERNET_KEY=fernet_key_placeholder
+      # Если хотите задать свой заранее — можно положить в .env; иначе будет сгенерирован автоматически
+      - AIRFLOW__CORE__FERNET_KEY=${AIRFLOW__CORE__FERNET_KEY:-}
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
       - SPARK_DRIVER_MEMORY=${SPARK_DRIVER_MEMORY:-20g}
+      - SPARK_DRIVER_MEMORY_OVERHEAD=${SPARK_DRIVER_MEMORY_OVERHEAD:-2g}
       - CONTAINER_MEM_LIMIT=${CONTAINER_MEM_LIMIT:-24g}
+      - SPARK_MASTER=${SPARK_MASTER:-local[4]}
     volumes:
       - ./dags:/opt/airflow/dags:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - airflow_logs:/opt/airflow/logs
       - airflow_plugins:/opt/airflow/plugins
-    # Inline entrypoint: ждём БД, инициализируем, создаём пользователя, стартуем scheduler + webserver
+      # Сюда будет сохраняться сгенерированный fernet ключ (постоянно на хосте)
+      - ./secrets:/opt/airflow/secrets:rw
+    # Inline entrypoint: генерирует/считывает fernet ключ, ждёт postgresql, инициализирует БД и стартует сервисы
     entrypoint: ["/bin/bash", "-c", "\
       set -euo pipefail; \
+      mkdir -p /opt/airflow/secrets; chmod 700 /opt/airflow/secrets || true; \
+      if [ -z \"${AIRFLOW__CORE__FERNET_KEY:-}\" ]; then \
+        if [ -f /opt/airflow/secrets/fernet_key ]; then \
+          export AIRFLOW__CORE__FERNET_KEY=$(cat /opt/airflow/secrets/fernet_key); \
+          echo \"Using existing Fernet key from /opt/airflow/secrets/fernet_key\"; \
+        else \
+          echo \"Generating new Fernet key...\"; \
+          export AIRFLOW__CORE__FERNET_KEY=$(python3 - <<'PY'\nfrom cryptography.fernet import Fernet\nprint(Fernet.generate_key().decode())\nPY\n); \
+          echo \"$AIRFLOW__CORE__FERNET_KEY\" > /opt/airflow/secrets/fernet_key; chmod 600 /opt/airflow/secrets/fernet_key; \
+          echo \"Saved new Fernet key to /opt/airflow/secrets/fernet_key\"; \
+        fi; \
+      else \
+        echo \"FERNET_KEY provided via environment\"; \
+        mkdir -p /opt/airflow/secrets; echo \"$AIRFLOW__CORE__FERNET_KEY\" > /opt/airflow/secrets/fernet_key; chmod 600 /opt/airflow/secrets/fernet_key; \
+      fi; \
       echo 'Waiting for Postgres...'; \
       if command -v pg_isready >/dev/null 2>&1; then \
         until pg_isready -h \"${POSTGRES_HOST:-postgres}\" -p \"${POSTGRES_PORT:-5432}\" -U \"${POSTGRES_USER:-airflow}\" >/dev/null 2>&1; do sleep 1; done; \
       else \
         until (echo > /dev/tcp/${POSTGRES_HOST:-postgres}/${POSTGRES_PORT:-5432}) >/dev/null 2>&1; do sleep 1; done; \
       fi; \
-      echo 'Postgres available, initializing Airflow DB...'; \
+      echo 'Postgres available — initializing Airflow DB (idempotent)...'; \
       airflow db init; \
+      echo 'Creating admin user if not exists...'; \
       airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin || true; \
+      echo 'Starting scheduler and webserver'; \
       airflow scheduler & \
       exec airflow webserver \
     "]
     ports:
       - "8080:8080"
+
+  compact-parquet:
+    build:
+      context: .
+      dockerfile: Dockerfile.spark.multistage
+    image: compact-parquet:latest
+    restart: on-failure
+    depends_on:
+      - postgres
+    environment:
+      - SPARK_DRIVER_MEMORY=${SPARK_DRIVER_MEMORY:-20g}
+      - SPARK_DRIVER_MEMORY_OVERHEAD=${SPARK_DRIVER_MEMORY_OVERHEAD:-2g}
+      - SPARK_LOCAL_DIRS=${SPARK_LOCAL_DIRS:-/tmp/spark_local}
+      - CONTAINER_MEM_LIMIT=${CONTAINER_MEM_LIMIT:-24g}
+    # пробросим host /data внутрь контейнера compact-parquet, чтобы parquet-файлы сохранялись на хосте
+    volumes:
+      - /data:/data
+    ports:
+      - "4040:4040"
 
 volumes:
   airflow_logs:
