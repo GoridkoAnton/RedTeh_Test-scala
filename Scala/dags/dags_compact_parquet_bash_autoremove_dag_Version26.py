@@ -3,7 +3,7 @@ import os
 from airflow import DAG
 from airflow.operators.bash import BashOperator
 
-# Настройки окружения — можно переопределять через переменные окружения Airflow или .env
+# Параметры — можно переопределить через environment / .env
 COMPOSE_NETWORK = os.environ.get("COMPOSE_NETWORK", "scala_default")  # замените при необходимости
 SPARK_MASTER = os.environ.get("SPARK_MASTER", "local[1]")
 SPARK_DRIVER_MEMORY = os.environ.get("SPARK_DRIVER_MEMORY", "20g")
@@ -17,7 +17,7 @@ POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD", "airflow")
 
 default_args = {
     "owner": "airflow",
-    "start_date": datetime(2025, 1, 1),
+    "start_date": datetime(2025, 11, 12),   # дата старта (поставьте в прошлое, чтобы scheduler запланировал первый запуск)
     "retries": 0,
     "retry_delay": timedelta(minutes=1),
 }
@@ -25,8 +25,10 @@ default_args = {
 with DAG(
     dag_id="compact_parquet_bash_autoremove",
     default_args=default_args,
-    schedule_interval=None,
-    catchup=False,
+    schedule_interval="0 2 * * *",  # каждый день в 02:00 UTC; замените на cron по ТЗ если нужно
+    catchup=False,                  # не выполнять пропущенные запуски в прошлом
+    max_active_runs=1,
+    catchup_by_default=False,
     tags=["docker", "bash"],
 ) as dag:
 
