@@ -2,8 +2,9 @@ from datetime import datetime, timedelta
 import os
 from airflow import DAG
 from airflow.providers.docker.operators.docker import DockerOperator
+from docker.types import Mount
 
-# Параметры можно переопределить через .env
+# Параметры (можно переопределить через .env)
 SPARK_MASTER = os.environ.get("SPARK_MASTER", "local[1]")
 SPARK_DRIVER_MEMORY = os.environ.get("SPARK_DRIVER_MEMORY", "20g")
 SPARK_DRIVER_MEMORY_OVERHEAD = os.environ.get("SPARK_DRIVER_MEMORY_OVERHEAD", "2g")
@@ -39,8 +40,7 @@ with DAG(
             f"{app_args}"
         )
 
-        # Wrapper: диагностические проверки, логирование команды и запуск spark-submit.
-        # Выводит содержимое /app и /data до и после запуска, чтобы убедиться в bind-mount.
+        # diagnostic wrapper: show mounts, df, id, ls /data before/after, then run spark-submit
         wrapper = (
             "set -euo pipefail; "
             "echo '=== DIAGNOSTIC START ==='; "
@@ -62,8 +62,7 @@ with DAG(
         kwargs = {
             "image": "compact-parquet:latest",
             "api_version": "auto",
-            # keep_container True -> auto_remove False (для отладки);
-            # по умолчанию контейнеры удаляются после выполнения.
+            # keep_container True -> auto_remove False (для диагностики)
             "auto_remove": not keep_container,
             "entrypoint": ["/bin/sh", "-c"],
             "command": wrapper,
@@ -78,18 +77,17 @@ with DAG(
             "mem_limit": CONTAINER_MEM_LIMIT,
         }
 
-        # Bind-mount host /data в контейнер /data чтобы parquet попадал на хост.
-        # Используем формат volumes (bind), т.к. он надёжно работает с DockerOperator.
-        kwargs["volumes"] = ["/data:/data:rw"]
+        # Правильно: используем mounts — список docker.types.Mount для bind
+        kwargs["mounts"] = [Mount(source="/data", target="/data", type="bind", read_only=False)]
 
         return kwargs
 
-    # generate: для первоначальной отладки ставим keep_container=True (чтобы контейнер остался)
+    # generate: для диагностики держим контейнер (keep_container=True)
     gen_kwargs = make_docker_kwargs("generate", ["/data/parquet"], keep_container=True)
     gen_kwargs["task_id"] = "generate_parquet"
     generate = DockerOperator(**gen_kwargs)
 
-    # compact_and_register: обычное поведение, контейнер удаляется после выполнения
+    # compact_and_register: обычное поведение (контейнер удаляется)
     comp_kwargs = make_docker_kwargs(
         "compact",
         ["/data/parquet", "50", "jdbc:postgresql://postgres:5432/airflow", "airflow", "airflow"],
