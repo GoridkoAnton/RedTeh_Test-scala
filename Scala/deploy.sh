@@ -44,6 +44,9 @@ if [ ! -d /data ]; then
   sudo mkdir -p /data
   sudo chmod 0775 /data
   echo "/data created and permissions set"
+  echo "Creating naming volume"
+  sudo docker volume create parquet_data
+  echo "Naming volume created"
 else
   echo "/data already exists — leaving as-is"
 fi
