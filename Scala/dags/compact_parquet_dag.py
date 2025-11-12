@@ -2,9 +2,8 @@ from datetime import datetime, timedelta
 import os
 from airflow import DAG
 from airflow.providers.docker.operators.docker import DockerOperator
-from docker.types import Mount
 
-# Параметры (можно переопределить через .env)
+# Параметры можно переопределить через .env
 SPARK_MASTER = os.environ.get("SPARK_MASTER", "local[1]")
 SPARK_DRIVER_MEMORY = os.environ.get("SPARK_DRIVER_MEMORY", "20g")
 SPARK_DRIVER_MEMORY_OVERHEAD = os.environ.get("SPARK_DRIVER_MEMORY_OVERHEAD", "2g")
@@ -40,12 +39,13 @@ with DAG(
             f"{app_args}"
         )
 
-        # diagnostic wrapper: show mounts, df, id, ls /data, then run spark-submit
+        # Wrapper: диагностические проверки, логирование команды и запуск spark-submit.
+        # Выводит содержимое /app и /data до и после запуска, чтобы убедиться в bind-mount.
         wrapper = (
             "set -euo pipefail; "
             "echo '=== DIAGNOSTIC START ==='; "
             "echo 'Whoami and uid:'; id || true; "
-            "echo 'Mounts:'; mount || true; "
+            "echo 'Mounts (proc):'; cat /proc/mounts || true; "
             "echo 'df -h /data:'; df -h /data || true; "
             "echo 'ls -la /data before:'; ls -la /data || true; "
             f"echo 'Checking for application jar: {app_path}'; "
@@ -62,7 +62,8 @@ with DAG(
         kwargs = {
             "image": "compact-parquet:latest",
             "api_version": "auto",
-            # keep_container True → auto_remove False, для отладки
+            # keep_container True -> auto_remove False (для отладки);
+            # по умолчанию контейнеры удаляются после выполнения.
             "auto_remove": not keep_container,
             "entrypoint": ["/bin/sh", "-c"],
             "command": wrapper,
@@ -77,17 +78,18 @@ with DAG(
             "mem_limit": CONTAINER_MEM_LIMIT,
         }
 
-        # Bind-mount host /data to container /data so parquet goes to host
-        kwargs["mounts"] = [Mount(source="/data", target="/data", type="bind", read_only=False)]
+        # Bind-mount host /data в контейнер /data чтобы parquet попадал на хост.
+        # Используем формат volumes (bind), т.к. он надёжно работает с DockerOperator.
+        kwargs["volumes"] = ["/data:/data:rw"]
 
         return kwargs
 
-    # generate: keep_container=True for diagnostics (container won't be auto-removed)
+    # generate: для первоначальной отладки ставим keep_container=True (чтобы контейнер остался)
     gen_kwargs = make_docker_kwargs("generate", ["/data/parquet"], keep_container=True)
     gen_kwargs["task_id"] = "generate_parquet"
     generate = DockerOperator(**gen_kwargs)
 
-    # compact_and_register: normal behavior (auto_remove True)
+    # compact_and_register: обычное поведение, контейнер удаляется после выполнения
     comp_kwargs = make_docker_kwargs(
         "compact",
         ["/data/parquet", "50", "jdbc:postgresql://postgres:5432/airflow", "airflow", "airflow"],
