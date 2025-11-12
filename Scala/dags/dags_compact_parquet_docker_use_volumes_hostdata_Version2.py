@@ -3,10 +3,10 @@ import os
 
 from airflow import DAG
 from airflow.providers.docker.operators.docker import DockerOperator
+from docker.types import Mount
 
 # ---- Configuration (control via env) ----
-# IMPORTANT: HOST_DATA_DIR is the path ON THE DOCKER HOST that will be bind-mounted
-HOST_DATA_DIR = os.environ.get("HOST_DATA_DIR", "/data")  # <-- host path (you asked to use /data)
+HOST_DATA_DIR = os.environ.get("HOST_DATA_DIR", "/data")  # <-- host path
 DATA_DIR = os.environ.get("DATA_DIR", "/data/parquet")    # path inside container
 COMPOSE_NETWORK = os.environ.get("COMPOSE_NETWORK", "scala_default")
 JOB_IMAGE = os.environ.get("JOB_IMAGE", "compact-parquet:latest")
@@ -16,7 +16,8 @@ POSTGRES_USER = os.environ.get("POSTGRES_USER", "airflow")
 POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD", "airflow")
 
 DEBUG = os.environ.get("DEBUG", "") == "1"
-KEEP_CONTAINERS = DEBUG or (os.environ.get("KEEP_CONTAINERS", "") == "1")
+USE_NAMED_VOLUME = os.environ.get("USE_NAMED_VOLUME", "0") == "1"
+NAMED_VOLUME = os.environ.get("NAMED_VOLUME", "parquet_data")
 
 default_args = {
     "owner": "airflow",
@@ -43,23 +44,25 @@ def make_command(mode: str) -> str:
         return (
             "set -eux; "
             "echo '=== DIAGNOSTIC START ==='; "
-            "echo 'UID/GID:'; id || true; "
-            "echo 'PWD:'; pwd || true; "
-            "echo 'proc mounts for /data:'; cat /proc/mounts | grep ' /data ' || true; "
-            "echo 'df -h /data:'; df -h /data || true; "
-            "echo 'ls -la /data BEFORE:'; ls -la /data || true; "
-            "echo 'touch marker BEFORE:'; date +%s > /data/_probe_before_$(date +%s) || true; ls -la /data | tail -n 20 || true; "
-            f"echo 'RUNNING SPARK: {mode}'; {spark_submit} 2>&1 | tee /data/spark_{mode}_$(date +%s).log || true; "
-            "echo 'ls -la /data AFTER:'; ls -la /data || true; "
-            "echo 'touch marker AFTER:'; date +%s > /data/_probe_after_$(date +%s) || true; "
+            "id || true; pwd || true; "
+            "cat /proc/mounts | grep ' /data ' || true; "
+            "df -h /data || true; "
+            "ls -la /data || true; "
+            "date +%s > /data/_probe_before_$(date +%s) || true; "
+            f"{spark_submit} 2>&1 | tee /data/spark_{mode}_$(date +%s).log || true; "
+            "ls -la /data || true; "
+            "date +%s > /data/_probe_after_$(date +%s) || true; "
             "echo '=== DIAGNOSTIC END ==='; "
         )
     else:
         return f"set -eu; {spark_submit}"
 
-# volumes= list (host bind by default)
+# Build mounts list using docker.types.Mount (required by this Airflow provider)
 host_path = os.path.abspath(HOST_DATA_DIR)
-volumes = [f"{host_path}:/data:rw"]
+if USE_NAMED_VOLUME:
+    mounts = [Mount(source=NAMED_VOLUME, target="/data", type="volume", read_only=False)]
+else:
+    mounts = [Mount(source=host_path, target="/data", type="bind", read_only=False)]
 
 with DAG(
     dag_id="compact_parquet_docker_use_volumes_hostdata",
@@ -76,7 +79,7 @@ with DAG(
         entrypoint=["/bin/sh", "-c"],
         docker_url="unix://var/run/docker.sock",
         network_mode=COMPOSE_NETWORK,
-        volumes=volumes,    # <-- use volumes= (bind or named)
+        mounts=mounts,    # <-- use mounts (docker.types.Mount)
         mount_tmp_dir=False,
         tty=False,
     )
