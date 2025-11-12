@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# deploy.sh — поднимает postgres + airflow без постоянной сборки Scala-проекта.
-# Опции:
-#   --build / --rebuild-image  : принудительно (re)build compact-parquet image перед поднятием
-#   --help                     : показать помощь
+# deploy.sh — автоматизация для демо:
+# - создаёт .env с Fernet ключом (если ещё нет)
+# - создаёт /data на хосте (если нужно) и выставляет базовые права
+# - поднимает только postgres + airflow (compact-parquet не запускаем автоматически)
+# - опция --build: собрать образ compact-parquet перед использованием
 
 REBUILD_IMAGE=false
-
 for arg in "$@"; do
   case "$arg" in
     --build|--rebuild-image) REBUILD_IMAGE=true ;;
@@ -18,11 +18,11 @@ done
 
 ENVFILE=".env"
 
-# 1) Генерация Fernet-key и базовых переменных в .env если ещё нет
+# 1) Генерируем Fernet key в .env если ещё нет
 if [ -f "$ENVFILE" ] && grep -q '^AIRFLOW__CORE__FERNET_KEY=' "$ENVFILE"; then
-  echo ".env already contains AIRFLOW__CORE__FERNET_KEY — оставляем как есть."
+  echo ".env already contains AIRFLOW__CORE__FERNET_KEY — оставляем."
 else
-  echo "Генерируем новый Fernet key и записываем в $ENVFILE..."
+  echo "Generating new Fernet key and writing to $ENVFILE..."
   NEW_KEY=$(python3 - <<'PY'
 import base64,os
 print(base64.urlsafe_b64encode(os.urandom(32)).decode())
@@ -35,59 +35,45 @@ SPARK_DRIVER_MEMORY_OVERHEAD=2g
 CONTAINER_MEM_LIMIT=24g
 SPARK_MASTER=local[4]
 EOF
-  echo "Записал $ENVFILE"
+  echo "Wrote $ENVFILE"
 fi
 
-# 2) Создать /data на хосте (для parquet) — использовать root права
+# 2) Ensure /data exists on host (parquet location)
 if [ ! -d /data ]; then
   echo "Creating host directory /data ..."
   sudo mkdir -p /data
   sudo chmod 0775 /data
   echo "/data created and permissions set"
 else
-  echo "/data already exists, leaving as-is"
+  echo "/data already exists — leaving as-is"
 fi
 
-# 3) Проверяем наличие образа compact-parquet:latest
+# 3) Check local compact-parquet image presence (do not build by default)
 IMAGE_NAME="compact-parquet:latest"
 if $REBUILD_IMAGE; then
-  echo "--build указан: образ будет пересобран."
+  echo "--build specified: will (re)build $IMAGE_NAME later."
   NEED_BUILD=true
 else
   if sudo docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
-    echo "Docker image $IMAGE_NAME found locally — пропускаем сборку."
+    echo "Docker image $IMAGE_NAME found locally — will not rebuild."
     NEED_BUILD=false
   else
-    echo "Docker image $IMAGE_NAME not found locally."
-    echo "Если хотите, выполните './deploy.sh --build' чтобы собрать образ перед запуском."
+    echo "Docker image $IMAGE_NAME not found locally. You can build it with './deploy.sh --build' if needed."
     NEED_BUILD=false
   fi
 fi
 
-# 4) Поднимаем только postgres и airflow (без compact-parquet)
-echo "Поднимаем только postgres и airflow (compact-parquet не будет запущен автоматически)..."
+# 4) Bring up postgres and airflow only
+echo "Bringing up postgres + airflow (compact-parquet service is present in compose but not started explicitly here)..."
 sudo docker compose down || true
-# Поднимаем нужные сервисы (без сборки compact-parquet)
 sudo docker compose up -d --no-deps --build postgres airflow
 
-# 5) Если нужно и запрошено, собираем образ (опционально)
+# 5) Optionally build compact-parquet (only if requested)
 if [ "$NEED_BUILD" = true ]; then
   echo "Building $IMAGE_NAME..."
-  # Собираем только образ compact-parquet через compose (использует Dockerfile в контексте)
   sudo docker compose build compact-parquet
-  echo "Build finished."
-else
-  echo "Образ компакт-паркет не был пересобран (NEED_BUILD=false)."
+  echo "Build complete."
 fi
 
-echo "Готово. Airflow и Postgres подняты."
-echo
-echo "Примечания:"
-echo "- compact-parquet сервис в docker-compose.yml оставлен, но не запускается автоматически."
-echo "- Если Airflow должен запускать задачу, он ожидает наличия образа '$IMAGE_NAME'."
-echo "  * Если образ уже собран — всё готово, DockerOperator внутри Airflow будет запускать контейнер."
-echo "  * Если образ не собран и вы хотите собрать сейчас, выполните: ./deploy.sh --build"
-echo "- Если хотите, можно добавить задачу в DAG, которая при отсутствии образа вызывает его сборку (требует docker client внутри Airflow)."
-echo
-echo "Для просмотра логов Airflow:"
+echo "Deployment finished. Tail Airflow logs with:"
 echo "  sudo docker compose logs -f airflow --tail 200"

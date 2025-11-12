@@ -9,7 +9,6 @@ services:
       POSTGRES_USER: airflow
       POSTGRES_PASSWORD: airflow
     volumes:
-      - ./pg-init:/docker-entrypoint-initdb.d:ro
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
@@ -39,9 +38,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - airflow_logs:/opt/airflow/logs
       - airflow_plugins:/opt/airflow/plugins
-      # Персистентный стейт для флага инициализации
-      - airflow_state:/opt/airflow/.state
-    # entrypoint делает init только если отсутствует /opt/airflow/.state/.initialized
+    # ENTRYPOINT: инициализация выполняется только один раз внутри контейнера (флаг /home/airflow/.initialized)
     entrypoint: ["/bin/bash", "-c", "\
       set -euo pipefail; \
       echo 'Waiting for Postgres...'; \
@@ -51,19 +48,18 @@ services:
         until (echo > /dev/tcp/${POSTGRES_HOST:-postgres}/${POSTGRES_PORT:-5432}) >/dev/null 2>&1; do sleep 1; done; \
       fi; \
       echo 'Postgres available'; \
-      mkdir -p /opt/airflow/.state; chmod 700 /opt/airflow/.state || true; \
       if [ -z \"${AIRFLOW__CORE__FERNET_KEY:-}\" ]; then \
-        echo 'ERROR: AIRFLOW__CORE__FERNET_KEY not set. Aborting init (set via .env or env var).'; \
+        echo 'ERROR: AIRFLOW__CORE__FERNET_KEY not set. Run deploy.sh to create .env or set env var.'; \
         exit 1; \
       fi; \
-      if [ ! -f /opt/airflow/.state/.initialized ]; then \
-        echo 'Initialization flag not found — running airflow db init and creating admin user (only once)'; \
+      if [ ! -f /home/airflow/.initialized ]; then \
+        echo 'Initialization flag not found — running airflow db init and creating admin (only once per container)'; \
         airflow db init; \
         airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin || true; \
-        touch /opt/airflow/.state/.initialized; \
-        echo 'Initialization complete: /opt/airflow/.state/.initialized created'; \
+        touch /home/airflow/.initialized || true; \
+        echo 'Initialization complete (flag created at /home/airflow/.initialized)'; \
       else \
-        echo 'Already initialized — skipping db init'; \
+        echo 'Already initialized inside this container — skipping db init'; \
       fi; \
       echo 'Starting scheduler and webserver'; \
       airflow scheduler & \
@@ -85,6 +81,7 @@ services:
       - SPARK_DRIVER_MEMORY_OVERHEAD=${SPARK_DRIVER_MEMORY_OVERHEAD:-2g}
       - SPARK_LOCAL_DIRS=${SPARK_LOCAL_DIRS:-/tmp/spark_local}
       - CONTAINER_MEM_LIMIT=${CONTAINER_MEM_LIMIT:-24g}
+    # Пробрасываем только /data на хост — parquet-файлы будут сохраняться на хосте
     volumes:
       - /data:/data
     ports:
@@ -94,5 +91,3 @@ volumes:
   airflow_logs:
   airflow_plugins:
   postgres_data:
-  # named volume to persist initialization flag across container recreates
-  airflow_state:
