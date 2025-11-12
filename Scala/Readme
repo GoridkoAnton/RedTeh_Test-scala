@@ -1,9 +1,0 @@
-Что сделать на машине (короткий список)
-
-Создать папки mkdir -p /data
-
-sudo chmod 666 /var/run/docker.sock
-
-Найти имя docker-сети и при необходимости задать COMPOSE_NETWORK_NAME (пример): docker network ls export COMPOSE_NETWORK_NAME=your_compose_network_name
-Пересобрать образ и поднять сервисы: docker compose build compact-parquet docker compose up -d postgres airflow
-После того как Airflow поднят, DAG будет доступен в UI; при запуске DockerOperator он запустит контейнер compact-parquet с SPARK_DRIVER_MEMORY=6g и примонтирует ./data.

@@ -23,7 +23,7 @@ default_args = {
 }
 
 with DAG(
-    dag_id="compact_parquet_bash_autoremove",
+    dag_id="compact_parquet_bash",
     default_args=default_args,
     schedule_interval="0 2 * * *",  # каждый день в 02:00 UTC; замените на cron по ТЗ если нужно
     catchup=False,                  # не выполнять пропущенные запуски в прошлом

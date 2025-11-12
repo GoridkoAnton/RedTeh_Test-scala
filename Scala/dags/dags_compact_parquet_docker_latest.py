@@ -26,12 +26,13 @@ default_args = {
 }
 
 with DAG(
-    dag_id="compact_parquet_docker_test",
+    dag_id="compact_parquet_docker",
     default_args=default_args,
     schedule_interval="0 2 * * *",  # ежедневный запуск в 02:00 UTC
     catchup=False,
     max_active_runs=1,
     tags=["docker", "spark"],
+    is_paused_upon_creation=False,
 ) as dag:
 
     # Используем именованный volume, общий между задачами
