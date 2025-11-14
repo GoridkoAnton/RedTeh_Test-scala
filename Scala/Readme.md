@@ -23,6 +23,7 @@ docker-compose
 Airflow запускает spark-submit через DockerOperator, сбрасывая ENTRYPOINT внутри job-контейнера.
 
 🧰 Требования
+Ubuntu 25.10
 Docker + Docker Compose v2
 Минимум 16 ГБ RAM
 Свободное место под Docker volumes
@@ -37,8 +38,8 @@ Spark UI	4040 (только во время выполнения job)
 Чтобы Airflow мог запускать контейнеры:
 sudo chmod 666 /var/run/docker.sock
 2️⃣ Клонировать проект
-git clone https://github.com/GoridkoAnton/RedTeh_Test-scala.git
-cd RedTeh_Test-scala/Scala
+git clone "Указать адрес гита"!!
+cd GIT/Scala
 3️⃣ Выполнить sudo chmod +x deploy.sh
 ️4️⃣ Запустить скрипт деплоя sudo ./deploy.sh
 
@@ -47,8 +48,8 @@ cd RedTeh_Test-scala/Scala
 Чтобы Airflow мог запускать контейнеры:
 sudo chmod 666 /var/run/docker.sock
 2️⃣ Клонировать проект
-git clone https://github.com/GoridkoAnton/RedTeh_Test-scala.git
-cd RedTeh_Test-scala/Scala
+git clone "Указать адрес гита"!!
+cd GIT/Scala
 3️⃣ Создать именованный том
 docker volume create parquet_data
 4️⃣ Поднять окружение
