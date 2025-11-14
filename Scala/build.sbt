@@ -10,5 +10,5 @@ libraryDependencies ++= Seq(
   "org.postgresql" % "postgresql" % "42.6.0"
 )
 
-// Явно задать имя итогового assembly-jar (опционально)
+// Явно задать имя итогового assembly-jar 
 ThisBuild / assembly / assemblyJarName := "compact-parquet-job-assembly-0.1.jar"

@@ -28,7 +28,7 @@ default_args = {
 with DAG(
     dag_id="compact_parquet_docker",
     default_args=default_args,
-    schedule_interval="0 2 * * *",  # ежедневный запуск в 02:00 UTC
+    schedule_interval="0 14 * * *",  # ежедневный запуск в 02:00 UTC
     catchup=False,
     max_active_runs=1,
     tags=["docker", "spark"],
