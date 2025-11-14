@@ -15,7 +15,7 @@ ENV SPARK_HOME=/opt/spark
 ENV PATH=$PATH:$SPARK_HOME/bin
 
 WORKDIR /app
-# Копируйте скомпилированный fat-jar (assembly) сюда при сборке образа
+# Копируйтся скомпилированный fat-jar (assembly) сюда при сборке образа
 COPY target/scala-2.12/compact-parquet-job-assembly-0.1.jar /app/job.jar
 
 ENTRYPOINT ["bash", "-lc", "/opt/spark/bin/spark-submit --master local[4] --class com.example.SmallFilesAndCompact /app/job.jar $@"] 
