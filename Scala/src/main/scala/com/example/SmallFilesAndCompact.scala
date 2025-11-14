@@ -40,6 +40,7 @@ object SmallFilesAndCompact {
         StructField(
           Random.alphanumeric.dropWhile(_.isDigit).take(10).mkString,
           DoubleType,
+          //Разрешено ли этому столбцу содержать значения NULL
           nullable = true
         )
       )
