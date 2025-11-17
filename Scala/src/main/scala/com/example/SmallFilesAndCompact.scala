@@ -155,7 +155,6 @@ object SmallFilesAndCompact {
       .toDF("data_path", "number_of_files", "average_files_size")
       .withColumn("dt", org.apache.spark.sql.functions.current_timestamp())
    // Запись в таблицу parquet_catalog — создаётся если нет (в зависимости от прав) или добавляется запись
-    // В продакшне: обеспечить схему таблицы заранее или проверять наличие столбцов/создавать таблицу.
     metaDf.write.mode("append").jdbc(jdbcUrl, "parquet_catalog", props)
   }
 
